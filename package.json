@@ -1,4 +1,14 @@
 {
+  "name": "export-service",
+  "version": "0.0.`",
+  "description": "export service for PDF and PNG leveraging chrome headless",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "postinstall": "typings install && tsc"
+  },
+  "author": "Zackary Chapple",
+  "license": "MIT",
   "dependencies": {
     "async-middleware": "^1.0.1",
     "body-parser": "^1.15.2",
