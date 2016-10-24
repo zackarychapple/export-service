@@ -17,6 +17,59 @@ if (process.argv[ 2 ] === undefined) {
   chromiumBinary = process.argv[ 2 ];
 }
 
+const html = `
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Goat.com</title>
+    <link href="assets/css/style.css" rel="stylesheet">
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="assets/favicon/favicon-32x32.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="assets/favicon/favicon-16x16.png" sizes="16x16">
+    <link rel="manifest" href="assets/favicon/manifest.json">
+    <link rel="mask-icon" href="assets/favicon/safari-pinned-tab.svg" color="#5bbad5">
+    <link rel="shortcut icon" href="assets/favicon/favicon.ico">
+    <meta name="msapplication-config" content="assets/favicon/browserconfig.xml">
+    <meta name="theme-color" content="#ffffff">
+  </head>
+  <body>
+    <script async="" src="//www.google-analytics.com/analytics.js"></script><script>
+      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+      ga('create', 'UA-9369909-101', 'auto');
+      ga('send', 'pageview');
+    </script>
+    <div class="top-bar">The one and only Goat.com<div class="visible-xs"><br></div><div class="hidden-xs">&nbsp;-&nbsp;</div>is available <a href="https://domainnamesales.com/domain/goat.com" target="_blank">For Lease</a></div>
+    <h1>Goat.com</h1>
+  	<div class="goat-holder">
+    	<img src="assets/img/goat.png" alt="Greatest of All Time" onclick="document.getElementById('goatPlay').play()">
+  	</div>
+    <div id="beaver" style="bottom: -10px;">
+      <a href="http://beaver.com" target="_blank">
+        <img src="assets/img/beaver-canada.png" alt="beaver.com">
+      </a>
+    </div>
+    <audio id="goatPlay" autoplay="">
+    	<source src="assets/audio/wav/goat.wav" id="wavSource" type="audio/wav">
+    	<source src="assets/audio/mp3/goat.mp3" id="mp3Source" type="audio/mpeg">
+    	<source src="assets/audio/ogg/goat.ogg" id="oggSource" type="audio/ogg">
+    	Your browser does not support the audio element.
+    </audio>
+    <script src="bower_components/jquery/dist/jquery.min.js"></script>
+    <script src="assets/js/main.js"></script>
+  
+
+
+</body></html>
+`;
+
 const letterPortriateWidth = '1280';
 const letterPortriateHeight = '1696';
 const letterLandscapeWidth = '1696';
@@ -64,20 +117,15 @@ app.post('/', (req: Request, res: Response) => {
 app.post('/dom2page', (req: Request, res: Response) => {
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
-      chromeInstance.Page.loadEventFired(function () {
-        chromeInstance.Runtime.evaluate({
-          'expression': `document.getElementsByTagName('html')[0].innerHTML = ${html}`
-        }, function (error:any, params:any) {
-          if (!error) {
-            imageExport.bind(null, chromeInstance, res, {})
-          }
-        });
+      chromeInstance.Runtime.evaluate({
+        'expression': `document.getElementsByTagName('html')[0].innerHTML = ${html}`
+      }, function (error: any, params: any) {
+        if (!error) {
+          imageExport(chromeInstance, res, {})
+        }
       });
-      chromeInstance.once('ready', () => {
-        chromeInstance.Page.navigate({url: 'http://'});
-      })
     });
-  });
+  })
 });
 
 async function pdfExport(instance: Chrome, response: Response, timingObject: TimingObject) {
@@ -135,56 +183,3 @@ app.listen(3000, async() => {
   });
   console.log('Export app running on 3000!');
 });
-
-const html = `
-<html lang="en"><head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Goat.com</title>
-    <link href="assets/css/style.css" rel="stylesheet">
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
-      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-    <![endif]-->
-    <link rel="apple-touch-icon" sizes="180x180" href="assets/favicon/apple-touch-icon.png">
-    <link rel="icon" type="image/png" href="assets/favicon/favicon-32x32.png" sizes="32x32">
-    <link rel="icon" type="image/png" href="assets/favicon/favicon-16x16.png" sizes="16x16">
-    <link rel="manifest" href="assets/favicon/manifest.json">
-    <link rel="mask-icon" href="assets/favicon/safari-pinned-tab.svg" color="#5bbad5">
-    <link rel="shortcut icon" href="assets/favicon/favicon.ico">
-    <meta name="msapplication-config" content="assets/favicon/browserconfig.xml">
-    <meta name="theme-color" content="#ffffff">
-  </head>
-  <body>
-    <script async="" src="//www.google-analytics.com/analytics.js"></script><script>
-      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
-      ga('create', 'UA-9369909-101', 'auto');
-      ga('send', 'pageview');
-    </script>
-    <div class="top-bar">The one and only Goat.com<div class="visible-xs"><br></div><div class="hidden-xs">&nbsp;-&nbsp;</div>is available <a href="https://domainnamesales.com/domain/goat.com" target="_blank">For Lease</a></div>
-    <h1>Goat.com</h1>
-  	<div class="goat-holder">
-    	<img src="assets/img/goat.png" alt="Greatest of All Time" onclick="document.getElementById('goatPlay').play()">
-  	</div>
-    <div id="beaver" style="bottom: -10px;">
-      <a href="http://beaver.com" target="_blank">
-        <img src="assets/img/beaver-canada.png" alt="beaver.com">
-      </a>
-    </div>
-    <audio id="goatPlay" autoplay="">
-    	<source src="assets/audio/wav/goat.wav" id="wavSource" type="audio/wav">
-    	<source src="assets/audio/mp3/goat.mp3" id="mp3Source" type="audio/mpeg">
-    	<source src="assets/audio/ogg/goat.ogg" id="oggSource" type="audio/ogg">
-    	Your browser does not support the audio element.
-    </audio>
-    <script src="bower_components/jquery/dist/jquery.min.js"></script>
-    <script src="assets/js/main.js"></script>
-  
-
-
-</body></html>
-`;
