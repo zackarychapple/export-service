@@ -18,7 +18,7 @@ if (process.argv[ 2 ] === undefined) {
 }
 
 const html = `
-<html lang="en"><head>
+<head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -67,7 +67,7 @@ const html = `
   
 
 
-</body></html>
+</body>
 `;
 
 const letterPortriateWidth = '1280';
