@@ -113,7 +113,7 @@ app.post('/dom2page', (req: Request, res: Response) => {
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
-        'expression': `document.getElementsByTagName('head')[0].innerHTML = ${head}; document.getElementsByTagName('body')[0].innerHTML = ${body};`
+        'expression': `document.getElementsByTagName('html')[0].innerHTML = ${body};`
       }, function (error: any, params: any) {
         if (!error) {
           imageExport(chromeInstance, res, {})
