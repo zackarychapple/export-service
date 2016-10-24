@@ -17,8 +17,7 @@ if (process.argv[ 2 ] === undefined) {
   chromiumBinary = process.argv[ 2 ];
 }
 
-const html = `
-<head>
+const head = `
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -36,8 +35,8 @@ const html = `
     <link rel="shortcut icon" href="assets/favicon/favicon.ico">
     <meta name="msapplication-config" content="assets/favicon/browserconfig.xml">
     <meta name="theme-color" content="#ffffff">
-  </head>
-  <body>
+  `;
+const body = `
     <script async="" src="//www.google-analytics.com/analytics.js"></script><script>
       (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
       (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -64,10 +63,6 @@ const html = `
     </audio>
     <script src="bower_components/jquery/dist/jquery.min.js"></script>
     <script src="assets/js/main.js"></script>
-  
-
-
-</body>
 `;
 
 const letterPortriateWidth = '1280';
@@ -118,7 +113,7 @@ app.post('/dom2page', (req: Request, res: Response) => {
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
-        'expression': `document.getElementsByTagName('html')[0].innerHTML = ${html}`
+        'expression': `document.getElementsByTagName('head')[0].innerHTML = ${head}; document.getElementsByTagName('body')[0].innerHTML = ${body};`
       }, function (error: any, params: any) {
         if (!error) {
           imageExport(chromeInstance, res, {})
