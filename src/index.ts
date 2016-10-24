@@ -119,7 +119,7 @@ app.post('/dom2page', (req: Request, res: Response) => {
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
-        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\`'`
+        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
       }, function (error: any, response: any) {
         if (error) {
           console.error('Protocol error: ', error)
