@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
-    "postinstall": "typings install && tsc"
+    "postinstall": "typings install"
   },
   "author": "Zackary Chapple",
   "license": "MIT",
