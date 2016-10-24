@@ -16,4 +16,4 @@ This project is a Node based export service that takes URL's and turns them into
 
 If you need help building the chrome headless binary you can see [this article][chrome] which details how to build it.
 
-[chrome]: www.zackarychapple.guru/chrome/2016/08/24/chrome-headless.html
+[chrome]: http://www.zackarychapple.guru/chrome/2016/08/24/chrome-headless.html
