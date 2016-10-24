@@ -17,7 +17,9 @@ if (process.argv[ 2 ] === undefined) {
   chromiumBinary = process.argv[ 2 ];
 }
 
-const head = `
+const body = `
+<head>
+    <base href="http://www.goat.com">
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,8 +37,8 @@ const head = `
     <link rel="shortcut icon" href="assets/favicon/favicon.ico">
     <meta name="msapplication-config" content="assets/favicon/browserconfig.xml">
     <meta name="theme-color" content="#ffffff">
-  `;
-const body = `
+  </head>
+  <body>
     <script async="" src="//www.google-analytics.com/analytics.js"></script><script>
       (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
       (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
@@ -63,6 +65,10 @@ const body = `
     </audio>
     <script src="bower_components/jquery/dist/jquery.min.js"></script>
     <script src="assets/js/main.js"></script>
+  
+
+
+</body>
 `;
 
 const letterPortriateWidth = '1280';
@@ -113,7 +119,7 @@ app.post('/dom2page', (req: Request, res: Response) => {
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
-        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
+        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\`'`
       }, function (error: any, response: any) {
         if (error) {
           console.error('Protocol error: ', error)
