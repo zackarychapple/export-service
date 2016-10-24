@@ -17,7 +17,7 @@ RUN \
     sudo apt-get install -y libgtk2.0-0 libgdk-pixbuf2.0-0 libfontconfig1 libxrender1 libx11-6 libglib2.0-0 libxft2 libfreetype6 libc6 zlib1g libpng12-0 libstdc++6-4.8-dbg-arm64-cross libgcc1
 
 COPY ./node_modules /root/export-app/node_modules
-ADD ./app.js /root/export-app/app.js
+COPY ./dist /root/export-app/dist
 ADD ./package.json /root/export-app/package.json
 ADD ./08-05-2016_Chromium-Headless-5.tar.gz /root/export-app
 
@@ -25,4 +25,4 @@ WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-CMD ["node", "app.js", "/root/export-app/chromium/src/out/Debug/headless_shell"]
+CMD ["node", "dist/index.js", "/root/export-app/chromium/src/out/Debug/headless_shell"]

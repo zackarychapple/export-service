@@ -110,13 +110,16 @@ app.post('/', (req: Request, res: Response) => {
 });
 
 app.post('/dom2page', (req: Request, res: Response) => {
-  let bodyReplace = "document.getElementsByTagName('html')[0].innerHTML = '"+ body + "'";
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
-        'expression': bodyReplace
-      }, function (error: any, params: any) {
-        if (!error) {
+        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
+      }, function (error: any, response: any) {
+        if (error) {
+          console.error('Protocol error: ', error)
+        } else if (response.wasThrown) {
+          console.error('Evaluation error', response)
+        } else {
           imageExport(chromeInstance, res, {})
         }
       });
