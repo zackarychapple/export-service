@@ -111,8 +111,8 @@ app.post('/', (req: Request, res: Response) => {
         timingObj.navigationStart = Date.now();
         chromeInstance.Page.navigate({url: screenshotRequest.url});
       })
-    });
-  });
+    })
+  })
 });
 
 app.post('/dom2page', (req: Request, res: Response) => {
@@ -134,7 +134,9 @@ app.post('/dom2page', (req: Request, res: Response) => {
 });
 
 async function pdfExport(instance: Chrome, response: Response, timingObject: TimingObject) {
-  const filename = await takeScreenshot(instance, timingObject);
+  const filename = await takeScreenshot(instance, timingObject).catch((error: any) => {
+    console.log("Take Screenshot Call Error: " + error);
+  });
   const doc = new PDFDocument({
     margin: 0
   });
@@ -156,12 +158,15 @@ async function pdfExport(instance: Chrome, response: Response, timingObject: Tim
 }
 
 async function imageExport(instance: Chrome, response: Response, timingObject: TimingObject) {
-  let filename = await takeScreenshot(instance, timingObject);
+  let filename = await takeScreenshot(instance, timingObject)
+    .catch((error: any) => {
+      console.log("Take Screenshot Call Error: " + error);
+    });
 
   response.setHeader('Content-Type', 'image/png');
   response.setHeader('Content-Disposition', 'attachment; filename=' + filename);
   fs.createReadStream(filename + '.png').pipe(response);
-
+  instance.close();
   console.log(timingObject);
 }
 
