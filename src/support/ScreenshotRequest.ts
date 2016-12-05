@@ -1,5 +1,6 @@
 export interface ScreenshotRequest {
   url: URL;
-  orientation: 'portirate'| 'landscape';
+  orientation: 'portrait'| 'landscape';
   exportType: 'pdf' | 'image';
+  delay:number;
 }

@@ -71,17 +71,17 @@ const body = `
 </body>
 `;
 
-const letterPortriateWidth = '1280';
-const letterPortriateHeight = '1696';
+const letterPortraitWidth = '1280';
+const letterPortraitHeight = '1696';
 const letterLandscapeWidth = '1696';
 const letterLandscapeHeight = '1280';
-const letterPortriateResolution = `${letterPortriateWidth}x${letterPortriateHeight}`;
+const letterPortraitResolution = `${letterPortraitWidth}x${letterPortraitHeight}`;
 const letterLandscapeResolution = `${letterLandscapeWidth}x${letterLandscapeHeight}`;
 //Look into '--dump-dom option'
 //See additional options in
 //https://cs.chromium.org/chromium/src/headless/app/headless_shell_switches.cc
 //https://groups.google.com/a/chromium.org/forum/#!topic/headless-dev/zxnl6JZA7hQ look at this for resizing page
-spawn(chromiumBinary, [ '--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortriateResolution}`, '--hide-scrollbars' ]);
+spawn(chromiumBinary, [ '--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars' ]);
 
 let app = express();
 app.use(bodyParser.json());
@@ -95,14 +95,19 @@ app.post('/', (req: Request, res: Response) => {
   let timingObj: TimingObject = {
     requestMade: Date.now()
   };
+
+  let delay = 0;
+  if (typeof screenshotRequest.delay !== 'undefined') {
+    delay = screenshotRequest.delay;
+  }
+
   Chrome.New(() => {
     Chrome((chromeInstance: any) => {
       timingObj.chromeStartup = Date.now();
-      if (screenshotRequest.exportType === 'pdf') {
-        chromeInstance.Page.loadEventFired(pdfExport.bind(null, chromeInstance, res, timingObj));
-      }
-      else {
-        chromeInstance.Page.loadEventFired(imageExport.bind(null, chromeInstance, res, timingObj));
+      if (screenshotRequest.exportType.toLowerCase() === 'pdf') {
+        chromeInstance.Page.loadEventFired(pdfExport.bind(null, chromeInstance, res, timingObj, delay));
+      } else {
+        chromeInstance.Page.loadEventFired(imageExport.bind(null, chromeInstance, res, timingObj, delay));
       }
       timingObj.pagePreEnable = Date.now();
       chromeInstance.Page.enable();
@@ -133,28 +138,31 @@ app.post('/dom2page', (req: Request, res: Response) => {
   })
 });
 
-async function pdfExport(instance: Chrome, response: Response, timingObject: TimingObject) {
-  const filename = await takeScreenshot(instance, timingObject).catch((error: any) => {
-    console.log("Take Screenshot Call Error: " + error);
-  });
-  const doc = new PDFDocument({
-    margin: 0
-  });
-  timingObject.initPDF = Date.now();
-  doc.image(filename + '.png', 0, 0, {width: 612});
-  response.setHeader('Content-Type', 'application/pdf');
-  response.setHeader('Content-Disposition', 'attachment; filename=' + filename + '.pdf');
+async function pdfExport(instance: Chrome, response: Response, timingObject: TimingObject, delay: number) {
+  setTimeout(async() => {
+    const filename = await takeScreenshot(instance, timingObject)
+      .catch((error: any) => {
+        console.log("Take Screenshot Call Error: " + error);
+      });
+    const doc = new PDFDocument({
+      margin: 0
+    });
+    timingObject.initPDF = Date.now();
+    doc.image(filename + '.png', 0, 0, {width: 612});
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', 'attachment; filename=' + filename + '.pdf');
 
-  doc.pipe(response);
-  timingObject.pdfPiped = Date.now();
+    doc.pipe(response);
+    timingObject.pdfPiped = Date.now();
 
-  doc.end();
-  timingObject.documentClosed = Date.now();
+    doc.end();
+    timingObject.documentClosed = Date.now();
 
-  instance.close();
-  timingObject.instanceClosed = Date.now();
+    instance.close();
+    timingObject.instanceClosed = Date.now();
 
-  console.log(timingObject);
+    console.log(timingObject);
+  }, delay)
 }
 
 async function imageExport(instance: Chrome, response: Response, timingObject: TimingObject) {
