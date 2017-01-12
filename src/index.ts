@@ -1,20 +1,25 @@
 import { Request, Response } from 'express';
 import { ScreenshotRequest } from './support/ScreenshotRequest';
 import { TimingObject } from './support/TimingObject';
+import { debounce, union } from 'lodash';
+
+import fs = require('fs');
 import express = require('express');
 import bodyParser = require('body-parser');
-import fs = require('fs');
-import Chrome = require('chrome-remote-interface');
 import spawnprocess = require('child_process');
+import Chrome = require('chrome-remote-interface');
+
 import PDFDocument = require('pdfkit');
 import PDFDocumentOptions = PDFKit.PDFDocumentOptions;
 
-const spawn = spawnprocess.spawn;
+const spawn: any = spawnprocess.spawn;
+
 let chromiumBinary: any;
-if (process.argv[ 2 ] === undefined) {
+
+if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
 } else {
-  chromiumBinary = process.argv[ 2 ];
+  chromiumBinary = process.argv[2];
 }
 
 const body = `
@@ -65,9 +70,6 @@ const body = `
     </audio>
     <script src="bower_components/jquery/dist/jquery.min.js"></script>
     <script src="assets/js/main.js"></script>
-  
-
-
 </body>
 `;
 
@@ -81,74 +83,147 @@ const letterLandscapeResolution = `${letterLandscapeWidth}x${letterLandscapeHeig
 //See additional options in
 //https://cs.chromium.org/chromium/src/headless/app/headless_shell_switches.cc
 //https://groups.google.com/a/chromium.org/forum/#!topic/headless-dev/zxnl6JZA7hQ look at this for resizing page
-spawn(chromiumBinary, [ '--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars' ]);
+spawn(chromiumBinary, ['--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars']);
 
 let app = express();
 app.use(bodyParser.json());
 
-app.post('/', (req: Request, res: Response) => {
+app.post('/', (req: Request, res: Response): any => {
   const screenshotRequest: ScreenshotRequest = req.body;
 
   if (typeof screenshotRequest === 'undefined' || typeof screenshotRequest.url === 'undefined') {
-    res.sendStatus(422)
+    return res.sendStatus(422);
   }
+
   let timingObj: TimingObject = {
     requestMade: Date.now()
   };
 
-  let delay = 0;
+  let delay: number = 0;
+
   if (typeof screenshotRequest.delay !== 'undefined') {
     delay = screenshotRequest.delay;
   }
 
-  Chrome.New(() => {
+  Chrome.New((err: Error, newTabData: any) => {
+    if (err) {
+      console.error('Create new tab error: ', err);
+    }
+
     Chrome((chromeInstance: any) => {
+      const {Page, Network} = chromeInstance;
+
       timingObj.chromeStartup = Date.now();
-      if (screenshotRequest.exportType.toLowerCase() === 'pdf') {
-        chromeInstance.Page.loadEventFired(pdfExport.bind(null, chromeInstance, res, timingObj, delay));
-      } else {
-        chromeInstance.Page.loadEventFired(imageExport.bind(null, chromeInstance, res, timingObj, delay));
-      }
+
+      let requestCount: number = 0;
+      let requestFinishedCount: number = 0;
+      let requestFailedCount: number = 0;
+
+      let pageIsLoaded: boolean = false;
+
+      let requestIds: string[] = [];
+      let requestFailedIds: string[] = [];
+      let requestFinishedIds: string[] = [];
+
+      const exportFileDebounce: Function = debounce(() => {
+        setTimeout(() => {
+          if (requestFinishedCount + requestFailedCount !== requestCount) {
+            return;
+          }
+
+          if (screenshotRequest.exportType.toLowerCase() === 'pdf') {
+            pdfExport(chromeInstance, res, newTabData, timingObj, delay);
+          } else {
+            imageExport(chromeInstance, res, newTabData, timingObj, delay);
+          }
+        }, 300);
+      }, 300);
+
+      Network.requestWillBeSent((response: any) => {
+        requestIds.push(response.requestId);
+
+        requestCount = union(requestIds).length;
+      });
+
+      Network.loadingFinished((response: any) => {
+        requestFinishedIds.push(response.requestId);
+        requestFinishedCount = union(requestFinishedIds).length;
+
+        if (pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+          exportFileDebounce();
+        }
+      });
+
+      Network.loadingFailed((response: any) => {
+        requestFailedIds.push(response.requestId);
+        requestFailedCount = union(requestFailedIds).length;
+
+        if (pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+          exportFileDebounce();
+        }
+      });
+
+      Page.loadEventFired(() => {
+        pageIsLoaded = true;
+
+        if (pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+          exportFileDebounce();
+        }
+      });
+
       timingObj.pagePreEnable = Date.now();
-      chromeInstance.Page.enable();
+
+      Page.enable();
+      Network.enable();
+
       timingObj.pagePostEnable = Date.now();
+
       chromeInstance.once('ready', () => {
         timingObj.navigationStart = Date.now();
-        chromeInstance.Page.navigate({url: screenshotRequest.url});
-      })
-    })
-  })
+
+        Page.navigate({url: screenshotRequest.url});
+      });
+    });
+  });
 });
 
 app.post('/dom2page', (req: Request, res: Response) => {
-  Chrome.New(() => {
+  Chrome.New((err: Error, newTabData: any) => {
+    if (err) {
+      console.error('Create new tab error: ', err);
+    }
+
     Chrome((chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
         'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
-      }, function (error: any, response: any) {
+      }, function (error: Error, response: any) {
         if (error) {
-          console.error('Protocol error: ', error)
+          console.error('Protocol error: ', error);
         } else if (response.wasThrown) {
-          console.error('Evaluation error', response)
+          console.error('Evaluation error', response);
         } else {
-          imageExport(chromeInstance, res, {})
+          imageExport(chromeInstance, res, newTabData, {}, 0);
         }
       });
     });
-  })
+  });
 });
 
-async function pdfExport(instance: Chrome, response: Response, timingObject: TimingObject, delay: number) {
-  setTimeout(async() => {
+async function pdfExport(instance: Chrome, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+  const takeScreenshotDebounce: Function = debounce(async() => {
     const filename = await takeScreenshot(instance, timingObject)
-      .catch((error: any) => {
-        console.log("Take Screenshot Call Error: " + error);
+      .catch((error: Error) => {
+        console.log('Take Screenshot Call Error: ' + error);
       });
-    const doc = new PDFDocument({
+
+    const doc: any = new PDFDocument({
       margin: 0
     });
+
     timingObject.initPDF = Date.now();
+
     doc.image(filename + '.png', 0, 0, {width: 612});
+
     response.setHeader('Content-Type', 'application/pdf');
     response.setHeader('Content-Disposition', 'attachment; filename=' + filename + '.pdf');
 
@@ -158,32 +233,40 @@ async function pdfExport(instance: Chrome, response: Response, timingObject: Tim
     doc.end();
     timingObject.documentClosed = Date.now();
 
-    instance.close();
+    Chrome.Close({'id': newTabInfo.id});
     timingObject.instanceClosed = Date.now();
 
     console.log(timingObject);
-  }, delay)
+  }, delay);
+
+  takeScreenshotDebounce();
 }
 
-async function imageExport(instance: Chrome, response: Response, timingObject: TimingObject) {
-  let filename = await takeScreenshot(instance, timingObject)
-    .catch((error: any) => {
-      console.log("Take Screenshot Call Error: " + error);
-    });
+async function imageExport(instance: Chrome, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+  const takeScreenshotDebounce: Function = debounce(async() => {
+    let filename: any = await takeScreenshot(instance, timingObject)
+      .catch((error: Error) => {
+        console.log('Take Screenshot Call Error: ' + error);
+      });
 
-  response.setHeader('Content-Type', 'image/png');
-  response.setHeader('Content-Disposition', 'attachment; filename=' + filename);
-  fs.createReadStream(filename + '.png').pipe(response);
-  instance.close();
-  console.log(timingObject);
+    response.setHeader('Content-Type', 'image/png');
+    response.setHeader('Content-Disposition', 'attachment; filename=' + filename);
+
+    fs.createReadStream(filename + '.png').pipe(response);
+
+    Chrome.Close({'id': newTabInfo.id});
+
+    console.log(timingObject);
+  }, delay);
+
+  takeScreenshotDebounce();
 }
-
 
 async function takeScreenshot(instance: Chrome, timingObject: TimingObject) {
   timingObject.inTakeScreenshot = Date.now();
 
-  const base64Image = await instance.Page.captureScreenshot();
-  const filename = `screenshot-${Date.now()}`;
+  const base64Image: any = await instance.Page.captureScreenshot();
+  const filename: string = `screenshot-${Date.now()}`;
 
   fs.writeFileSync(filename + '.png', base64Image.data, 'base64');
   timingObject.imageSaved = Date.now();
@@ -199,5 +282,6 @@ app.listen(3000, async() => {
       console.log(info);
     }
   });
+
   console.log('Export app running on 3000!');
 });
