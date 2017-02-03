@@ -10,7 +10,6 @@
   "author": "Zackary Chapple",
   "license": "MIT",
   "dependencies": {
-    "@types/lodash": "^4.14.48",
     "async-middleware": "^1.0.1",
     "body-parser": "^1.15.2",
     "chrome-devtools-frontend": "1.0.436164",
@@ -22,6 +21,7 @@
   "devDependencies": {
     "@types/body-parser": "0.0.33",
     "@types/express": "^4.0.34",
+    "@types/lodash": "4.14.48",
     "@types/pdfkit": "^0.7.31"
   }
 }
