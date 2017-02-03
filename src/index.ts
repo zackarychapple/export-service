@@ -7,7 +7,7 @@ import fs = require('fs');
 import express = require('express');
 import bodyParser = require('body-parser');
 import spawnprocess = require('child_process');
-import Chrome = require('chrome-remote-interface');
+const Chrome = require('chrome-remote-interface');
 
 import PDFDocument = require('pdfkit');
 import PDFDocumentOptions = PDFKit.PDFDocumentOptions;
@@ -267,7 +267,7 @@ app.post('/dom2page', (req: Request, res: Response) => {
   });
 });
 
-async function pdfExport(instance: Chrome, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+async function pdfExport(instance: any, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     const filename = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -300,7 +300,7 @@ async function pdfExport(instance: Chrome, response: Response, newTabInfo: any, 
   takeScreenshotDebounce();
 }
 
-async function imageExport(instance: Chrome, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+async function imageExport(instance: any, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     let filename: any = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -320,7 +320,7 @@ async function imageExport(instance: Chrome, response: Response, newTabInfo: any
   takeScreenshotDebounce();
 }
 
-async function takeScreenshot(instance: Chrome, timingObject: TimingObject) {
+async function takeScreenshot(instance: any, timingObject: TimingObject) {
   timingObject.inTakeScreenshot = Date.now();
 
   const base64Image: any = await instance.Page.captureScreenshot();
