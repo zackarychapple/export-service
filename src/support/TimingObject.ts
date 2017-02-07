@@ -1,4 +1,5 @@
 export interface TimingObject {
+  exportName?:string;
   requestMade?: number;
   chromeStartup?: number;
   pagePreEnable?: number;

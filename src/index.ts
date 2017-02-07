@@ -92,6 +92,7 @@ app.use(bodyParser.json());
 app.get('/', (req: Request, res: Response) => {
   res.json({
     url: 'http://stackoverflow.com',
+    exportName: 'my export file',
     orientation: 'portrait',
     exportType: 'image',
     delay: 0,
@@ -113,6 +114,11 @@ app.post('/', (req: Request, res: Response): any => {
   let delay: number = 0;
   let exportType: string = 'image';
   let customEventName: string = 'prerenderReady';
+  if (typeof screenshotRequest.exportName !== 'undefined') {
+    timingObj.exportName = screenshotRequest.exportName;
+  } else {
+    timingObj.exportName = 'Export_' + Date.now();
+  }
 
   if (typeof screenshotRequest.flagName !== 'undefined') {
     customEventName = screenshotRequest.flagName;
@@ -302,7 +308,7 @@ async function pdfExport(instance: any, response: Response, timingObject: Timing
     doc.image(filename + '.png', 0, 0, {width: 612});
 
     response.setHeader('Content-Type', 'application/pdf');
-    response.setHeader('Content-Disposition', 'attachment; filename=' + filename + '.pdf');
+    response.setHeader('Content-Disposition', 'attachment; filename=' + timingObject.exportName);
 
     doc.pipe(response);
     timingObject.pdfPiped = Date.now();
@@ -314,6 +320,10 @@ async function pdfExport(instance: any, response: Response, timingObject: Timing
     timingObject.instanceClosed = Date.now();
 
     console.log(timingObject);
+    console.log(`Export ${timingObject.exportName} image saved in: ${timingObject.imageSaved - timingObject.requestMade}`);
+    if (typeof timingObject.pdfPiped !== 'undefined'){
+      console.log(`Export ${timingObject.exportName} pdf sent in: ${timingObject.pdfPiped - timingObject.requestMade}`);
+    }
   }, delay);
 
   takeScreenshotDebounce();
@@ -327,7 +337,7 @@ async function imageExport(instance: any, response: Response, timingObject: Timi
       });
 
     response.setHeader('Content-Type', 'image/png');
-    response.setHeader('Content-Disposition', 'attachment; filename=' + filename);
+    response.setHeader('Content-Disposition', 'attachment; filename=' + timingObject.exportName);
 
     fs.createReadStream(filename + '.png').pipe(response);
 
