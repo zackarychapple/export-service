@@ -101,7 +101,16 @@ app.post('/', (req: Request, res: Response): any => {
   };
 
   let delay: number = 0;
-  let customEventName: string = screenshotRequest.flagName ? screenshotRequest.flagName : 'prerenderReady';
+  let exportType: string = 'image';
+  let customEventName: string = 'prerenderReady';
+
+  if (typeof screenshotRequest.flagName !== 'undefined') {
+    customEventName = screenshotRequest.flagName;
+  }
+
+  if (typeof screenshotRequest.exportType !== 'undefined') {
+    exportType = screenshotRequest.exportType;
+  }
 
   if (typeof screenshotRequest.delay !== 'undefined') {
     delay = screenshotRequest.delay;
@@ -134,10 +143,10 @@ app.post('/', (req: Request, res: Response): any => {
             return;
           }
 
-          if (screenshotRequest.exportType.toLowerCase() === 'pdf') {
-            pdfExport(chromeInstance, res, newTabData, timingObj, delay);
+          if (exportType.toLowerCase() === 'pdf') {
+            pdfExport(chromeInstance, res, timingObj, delay);
           } else {
-            imageExport(chromeInstance, res, newTabData, timingObj, delay);
+            imageExport(chromeInstance, res, timingObj, delay);
           }
         }, 300);
       }, 300);
@@ -179,7 +188,7 @@ app.post('/', (req: Request, res: Response): any => {
 
         getEventStatusByName(Runtime.evaluate, customEventName, (error: Error, data: {isLoaded: boolean}) => {
           if (error) {
-            console.error('Custom event status error: ', error);
+            console.error('Custom event status: ', error);
           }
 
           customEventIsLoaded = data ? data.isLoaded : true;
@@ -260,14 +269,14 @@ app.post('/dom2page', (req: Request, res: Response) => {
         } else if (response.wasThrown) {
           console.error('Evaluation error', response);
         } else {
-          imageExport(chromeInstance, res, newTabData, {}, 0);
+          imageExport(chromeInstance, res, {}, 0);
         }
       });
     });
   });
 });
 
-async function pdfExport(instance: any, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+async function pdfExport(instance: any, response: Response, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     const filename = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -291,7 +300,7 @@ async function pdfExport(instance: any, response: Response, newTabInfo: any, tim
     doc.end();
     timingObject.documentClosed = Date.now();
 
-    Chrome.Close({'id': newTabInfo.id});
+    instance.close();
     timingObject.instanceClosed = Date.now();
 
     console.log(timingObject);
@@ -300,7 +309,7 @@ async function pdfExport(instance: any, response: Response, newTabInfo: any, tim
   takeScreenshotDebounce();
 }
 
-async function imageExport(instance: any, response: Response, newTabInfo: any, timingObject: TimingObject, delay: number) {
+async function imageExport(instance: any, response: Response, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     let filename: any = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -312,7 +321,8 @@ async function imageExport(instance: any, response: Response, newTabInfo: any, t
 
     fs.createReadStream(filename + '.png').pipe(response);
 
-    Chrome.Close({'id': newTabInfo.id});
+    instance.close();
+    timingObject.instanceClosed = Date.now();
 
     console.log(timingObject);
   }, delay);
@@ -332,14 +342,31 @@ async function takeScreenshot(instance: any, timingObject: TimingObject) {
   return filename;
 }
 
-app.listen(3000, () => {
-  Chrome.Version((err: any, info: any) => {
-    if (err) {
-      console.log(err);
-    } else {
-      console.log(info);
-    }
-  });
+runServer();
 
-  console.log('Export app running on 3000!');
-});
+function runServer() {
+  browserInfo((error: Error, info: any) => {
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    console.log(info);
+
+    app.listen(3000, () => {
+      console.log('Export app running on 3000!');
+    });
+  });
+}
+
+function browserInfo(cb: Function): Function {
+  return Chrome.Version((err: Error, info: any) => {
+    if (!err) {
+      return cb(null, info);
+    }
+
+    setTimeout(() => {
+      return browserInfo(cb);
+    }, 300);
+  });
+}
