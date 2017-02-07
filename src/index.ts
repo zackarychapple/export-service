@@ -1,5 +1,5 @@
 import { Request, Response, Express } from 'express';
-import { ScreenshotRequest } from './support/ScreenshotRequest';
+import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { TimingObject } from './support/TimingObject';
 import { debounce, union } from 'lodash';
 
@@ -17,10 +17,10 @@ const spawn: any = spawnprocess.spawn;
 
 let chromiumBinary: any;
 
-if (process.argv[2] === undefined) {
+if (process.argv[ 2 ] === undefined) {
   throw Error('No headless binary path provided.');
 } else {
-  chromiumBinary = process.argv[2];
+  chromiumBinary = process.argv[ 2 ];
 }
 
 const body = `
@@ -84,13 +84,23 @@ const letterLandscapeResolution = `${letterLandscapeWidth}x${letterLandscapeHeig
 //See additional options in
 //https://cs.chromium.org/chromium/src/headless/app/headless_shell_switches.cc
 //https://groups.google.com/a/chromium.org/forum/#!topic/headless-dev/zxnl6JZA7hQ look at this for resizing page
-spawn(chromiumBinary, ['--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars']);
+spawn(chromiumBinary, [ '--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars' ]);
 
 let app: Express = express();
 app.use(bodyParser.json());
 
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    url: 'http://stackoverflow.com',
+    orientation: 'portrait',
+    exportType: 'image',
+    delay: 0,
+    flagName: 'prerenderReady'
+  });
+});
+
 app.post('/', (req: Request, res: Response): any => {
-  const screenshotRequest: ScreenshotRequest = req.body;
+  const screenshotRequest: IScreenshotRequest = req.body;
 
   if (typeof screenshotRequest === 'undefined' || typeof screenshotRequest.url === 'undefined') {
     return res.sendStatus(422);
