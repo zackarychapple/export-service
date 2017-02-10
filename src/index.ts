@@ -1,7 +1,9 @@
 import { Request, Response, Express } from 'express';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { TimingObject } from './support/TimingObject';
+import { IChromeInstance } from './support/ChromeInstance';
 import { debounce, union } from 'lodash';
+import { eachLimit } from 'async';
 
 import fs = require('fs');
 import express = require('express');
@@ -17,10 +19,10 @@ const spawn: any = spawnprocess.spawn;
 
 let chromiumBinary: any;
 
-if (process.argv[ 2 ] === undefined) {
+if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
 } else {
-  chromiumBinary = process.argv[ 2 ];
+  chromiumBinary = process.argv[2];
 }
 
 const body = `
@@ -80,14 +82,27 @@ const letterLandscapeWidth = '1696';
 const letterLandscapeHeight = '1280';
 const letterPortraitResolution = `${letterPortraitWidth}x${letterPortraitHeight}`;
 const letterLandscapeResolution = `${letterLandscapeWidth}x${letterLandscapeHeight}`;
+const remoteDebuggingPorts: IChromeInstance[] = [
+  {port: 9222, isInActive: true},
+  {port: 9223, isInActive: true},
+  {port: 9224, isInActive: true},
+  {port: 9225, isInActive: true},
+  {port: 9226, isInActive: true}
+];
+
+let app: Express = express();
+app.use(bodyParser.json());
+
 //Look into '--dump-dom option'
 //See additional options in
 //https://cs.chromium.org/chromium/src/headless/app/headless_shell_switches.cc
 //https://groups.google.com/a/chromium.org/forum/#!topic/headless-dev/zxnl6JZA7hQ look at this for resizing page
-spawn(chromiumBinary, [ '--no-sandbox', '--remote-debugging-port=9222', `--window-size=${letterPortraitResolution}`, '--hide-scrollbars' ]);
 
-let app: Express = express();
-app.use(bodyParser.json());
+remoteDebuggingPorts.forEach((item: IChromeInstance) => {
+  spawn(chromiumBinary, ['--no-sandbox', `--remote-debugging-port=${item.port}`, `--window-size=${letterPortraitResolution}`, '--hide-scrollbars']);
+});
+
+runServer();
 
 app.get('/', (req: Request, res: Response) => {
   res.json({
@@ -107,6 +122,19 @@ app.post('/', (req: Request, res: Response): any => {
     return res.sendStatus(422);
   }
 
+  let instanceData = remoteDebuggingPorts.find((item: IChromeInstance, index: number) => {
+    if (!item.isInActive) {
+      return false;
+    }
+
+    remoteDebuggingPorts[index].isInActive = false;
+    return true;
+  });
+
+  if (!instanceData) {
+    return res.json({error: 'Sorry, all instances of chrome isn\'t unavailable'});
+  }
+
   let timingObj: TimingObject = {
     requestMade: Date.now()
   };
@@ -114,6 +142,7 @@ app.post('/', (req: Request, res: Response): any => {
   let delay: number = 0;
   let exportType: string = 'image';
   let customEventName: string = 'prerenderReady';
+
   if (typeof screenshotRequest.exportName !== 'undefined') {
     timingObj.exportName = screenshotRequest.exportName;
   } else {
@@ -132,102 +161,96 @@ app.post('/', (req: Request, res: Response): any => {
     delay = screenshotRequest.delay;
   }
 
-  Chrome.New((err: Error, newTabData: any) => {
-    if (err) {
-      console.error('Create new tab error: ', err);
-    }
+  Chrome({port: (instanceData as IChromeInstance).port}, (chromeInstance: any) => {
+    const {Page, Network, Runtime} = chromeInstance;
 
-    Chrome((chromeInstance: any) => {
-      const {Page, Network, Runtime} = chromeInstance;
+    timingObj.chromeStartup = Date.now();
 
-      timingObj.chromeStartup = Date.now();
+    let requestCount: number = 0;
+    let requestFinishedCount: number = 0;
+    let requestFailedCount: number = 0;
 
-      let requestCount: number = 0;
-      let requestFinishedCount: number = 0;
-      let requestFailedCount: number = 0;
+    let pageIsLoaded: boolean = false;
+    let customEventIsLoaded: boolean = false;
 
-      let pageIsLoaded: boolean = false;
-      let customEventIsLoaded: boolean = false;
+    let requestIds: string[] = [];
+    let requestFailedIds: string[] = [];
+    let requestFinishedIds: string[] = [];
 
-      let requestIds: string[] = [];
-      let requestFailedIds: string[] = [];
-      let requestFinishedIds: string[] = [];
-
-      const exportFileDebounce: Function = debounce(() => {
-        setTimeout(() => {
-          if (requestFinishedCount + requestFailedCount !== requestCount) {
-            return;
-          }
-
-          if (exportType.toLowerCase() === 'pdf') {
-            pdfExport(chromeInstance, res, timingObj, delay);
-          } else {
-            imageExport(chromeInstance, res, timingObj, delay);
-          }
-        }, 300);
-      }, 300);
-
-      Network.requestWillBeSent((response: any) => {
-        requestIds.push(response.requestId);
-
-        requestCount = union(requestIds).length;
-      });
-
-      Network.loadingFinished((response: any) => {
-        requestFinishedIds.push(response.requestId);
-        requestFinishedCount = union(requestFinishedIds).length;
-
-        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-          exportFileDebounce();
-        }
-      });
-
-      Network.loadingFailed((response: any) => {
-        requestFailedIds.push(response.requestId);
-        requestFailedCount = union(requestFailedIds).length;
-
-        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-          exportFileDebounce();
-        }
-      });
-
-      Page.loadEventFired(() => {
-        pageIsLoaded = true;
-
-        if (customEventIsLoaded) {
-          if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-            exportFileDebounce();
-          }
-
+    const exportFileDebounce: Function = debounce(() => {
+      setTimeout(() => {
+        if (requestFinishedCount + requestFailedCount !== requestCount) {
           return;
         }
 
-        getEventStatusByName(Runtime.evaluate, customEventName, (error: Error, data: {isLoaded: boolean}) => {
-          if (error) {
-            console.error('Custom event status: ', error);
-          }
+        if (exportType.toLowerCase() === 'pdf') {
+          pdfExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+        } else {
+          imageExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+        }
+      }, 300);
+    }, 300);
 
-          customEventIsLoaded = data ? data.isLoaded : true;
+    Network.requestWillBeSent((response: any) => {
+      requestIds.push(response.requestId);
 
-          if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-            exportFileDebounce();
-          }
-        });
+      requestCount = union(requestIds).length;
+    });
+
+    Network.loadingFinished((response: any) => {
+      requestFinishedIds.push(response.requestId);
+      requestFinishedCount = union(requestFinishedIds).length;
+
+      if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+        exportFileDebounce();
+      }
+    });
+
+    Network.loadingFailed((response: any) => {
+      requestFailedIds.push(response.requestId);
+      requestFailedCount = union(requestFailedIds).length;
+
+      if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+        exportFileDebounce();
+      }
+    });
+
+    Page.loadEventFired(() => {
+      pageIsLoaded = true;
+
+      if (customEventIsLoaded) {
+        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+          exportFileDebounce();
+        }
+
+        return;
+      }
+
+      getEventStatusByName(Runtime.evaluate, customEventName, (error: Error, data: {isLoaded: boolean}) => {
+        if (error) {
+          console.error('Custom event status: ', error);
+        }
+
+        customEventIsLoaded = data ? data.isLoaded : true;
+
+        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
+          exportFileDebounce();
+        }
       });
+    });
 
-      timingObj.pagePreEnable = Date.now();
+    timingObj.pagePreEnable = Date.now();
 
-      Page.enable();
-      Network.enable();
-      Runtime.enable();
+    Page.enable();
+    Network.enable();
+    Runtime.enable();
 
-      timingObj.pagePostEnable = Date.now();
+    timingObj.pagePostEnable = Date.now();
 
-      chromeInstance.once('ready', () => {
-        timingObj.navigationStart = Date.now();
+    chromeInstance.once('ready', () => {
+      timingObj.navigationStart = Date.now();
 
-        Page.navigate({url: screenshotRequest.url});
-      });
+      Page.navigate({url: screenshotRequest.url});
     });
   });
 });
@@ -270,29 +293,44 @@ function getPrerenderReadyStatus(runtimeEvaluate: Function, customEventName: str
   });
 }
 
-app.post('/dom2page', (req: Request, res: Response) => {
-  Chrome.New((err: Error, newTabData: any) => {
-    if (err) {
-      console.error('Create new tab error: ', err);
+app.post('/dom2page', (req: Request, res: Response): any => {
+  const instanceData = remoteDebuggingPorts.find((item: IChromeInstance, index: number) => {
+    if (!item.isInActive) {
+      return false;
     }
 
-    Chrome((chromeInstance: any) => {
-      chromeInstance.Runtime.evaluate({
-        'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
-      }, function (error: Error, response: any) {
-        if (error) {
-          console.error('Protocol error: ', error);
-        } else if (response.wasThrown) {
-          console.error('Evaluation error', response);
-        } else {
-          imageExport(chromeInstance, res, {}, 0);
-        }
-      });
+    remoteDebuggingPorts[index].isInActive = false;
+    return true;
+  });
+
+  if (!instanceData) {
+    return res.json({error: 'Sorry, all instances of chrome isn\'t unavailable'});
+  }
+
+  Chrome({port: instanceData.port}, (chromeInstance: any) => {
+    chromeInstance.Runtime.evaluate({
+      'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${body}\``
+    }, function (error: Error, response: any) {
+      if (error) {
+        console.error('Protocol error: ', error);
+
+        remoteDebuggingPorts.forEach((item: IChromeInstance) => {
+          if (item.port !== instanceData.port) {
+            return;
+          }
+
+          item.isInActive = true;
+        });
+      } else if (response.wasThrown) {
+        console.error('Evaluation error', response);
+      } else {
+        imageExport(chromeInstance, res, instanceData as IChromeInstance, {}, 0);
+      }
     });
   });
 });
 
-async function pdfExport(instance: any, response: Response, timingObject: TimingObject, delay: number) {
+async function pdfExport(instance: any, response: Response, instanceData: IChromeInstance, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     const filename = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -319,9 +357,18 @@ async function pdfExport(instance: any, response: Response, timingObject: Timing
     instance.close();
     timingObject.instanceClosed = Date.now();
 
+    remoteDebuggingPorts.forEach((item: IChromeInstance) => {
+      if (item.port !== instanceData.port) {
+        return;
+      }
+
+      item.isInActive = true;
+    });
+
     console.log(timingObject);
     console.log(`Export ${timingObject.exportName} image saved in: ${timingObject.imageSaved - timingObject.requestMade}`);
-    if (typeof timingObject.pdfPiped !== 'undefined'){
+
+    if (typeof timingObject.pdfPiped !== 'undefined') {
       console.log(`Export ${timingObject.exportName} pdf sent in: ${timingObject.pdfPiped - timingObject.requestMade}`);
     }
   }, delay);
@@ -329,7 +376,7 @@ async function pdfExport(instance: any, response: Response, timingObject: Timing
   takeScreenshotDebounce();
 }
 
-async function imageExport(instance: any, response: Response, timingObject: TimingObject, delay: number) {
+async function imageExport(instance: any, response: Response, instanceData: IChromeInstance, timingObject: TimingObject, delay: number) {
   const takeScreenshotDebounce: Function = debounce(async() => {
     let filename: any = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
@@ -338,6 +385,14 @@ async function imageExport(instance: any, response: Response, timingObject: Timi
 
     response.setHeader('Content-Type', 'image/png');
     response.setHeader('Content-Disposition', 'attachment; filename=' + timingObject.exportName);
+
+    remoteDebuggingPorts.forEach((item: IChromeInstance) => {
+      if (item.port !== instanceData.port) {
+        return;
+      }
+
+      item.isInActive = true;
+    });
 
     fs.createReadStream(filename + '.png').pipe(response);
 
@@ -362,16 +417,16 @@ async function takeScreenshot(instance: any, timingObject: TimingObject) {
   return filename;
 }
 
-runServer();
-
 function runServer() {
-  browserInfo((error: Error, info: any) => {
+  eachLimit(remoteDebuggingPorts, 5, browsersInfo, (error: Error) => {
     if (error) {
       console.log(error);
       return;
     }
 
-    console.log(info);
+    console.log('Instances stats :');
+    console.log(remoteDebuggingPorts);
+    console.log('********************');
 
     app.listen(3000, () => {
       console.log('Export app running on 3000!');
@@ -379,14 +434,14 @@ function runServer() {
   });
 }
 
-function browserInfo(cb: Function): Function {
-  return Chrome.Version((err: Error, info: any) => {
+function browsersInfo(item: IChromeInstance, cb: Function): Function {
+  return Chrome.Version({port: item.port}, (err: Error) => {
     if (!err) {
-      return cb(null, info);
+      return cb(null, null);
     }
 
     setTimeout(() => {
-      return browserInfo(cb);
+      return browsersInfo(item, cb);
     }, 300);
   });
 }
