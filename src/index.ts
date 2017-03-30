@@ -2,7 +2,7 @@ import { Request, Response, Express } from 'express';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { TimingObject } from './support/TimingObject';
 import { IChromeInstance } from './support/ChromeInstance';
-import { debounce, union } from 'lodash';
+import { debounce } from 'lodash';
 import { eachLimit } from 'async';
 
 import fs = require('fs');
@@ -162,87 +162,31 @@ app.post('/', (req: Request, res: Response): any => {
   }
 
   Chrome({port: (instanceData as IChromeInstance).port}, (chromeInstance: any) => {
-    const {Page, Network, Runtime} = chromeInstance;
+    const {Page, Runtime} = chromeInstance;
 
     timingObj.chromeStartup = Date.now();
 
-    let requestCount: number = 0;
-    let requestFinishedCount: number = 0;
-    let requestFailedCount: number = 0;
-
-    let pageIsLoaded: boolean = false;
-    let customEventIsLoaded: boolean = false;
-
-    let requestIds: string[] = [];
-    let requestFailedIds: string[] = [];
-    let requestFinishedIds: string[] = [];
-
     const exportFileDebounce: Function = debounce(() => {
-      setTimeout(() => {
-        if (requestFinishedCount + requestFailedCount !== requestCount) {
-          return;
-        }
-
-        if (exportType.toLowerCase() === 'pdf') {
-          pdfExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
-        } else {
-          imageExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
-        }
-      }, 300);
+      if (exportType.toLowerCase() === 'pdf') {
+        pdfExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+      } else {
+        imageExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+      }
     }, 300);
 
-    Network.requestWillBeSent((response: any) => {
-      requestIds.push(response.requestId);
-
-      requestCount = union(requestIds).length;
-    });
-
-    Network.loadingFinished((response: any) => {
-      requestFinishedIds.push(response.requestId);
-      requestFinishedCount = union(requestFinishedIds).length;
-
-      if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-        exportFileDebounce();
-      }
-    });
-
-    Network.loadingFailed((response: any) => {
-      requestFailedIds.push(response.requestId);
-      requestFailedCount = union(requestFailedIds).length;
-
-      if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-        exportFileDebounce();
-      }
-    });
-
     Page.loadEventFired(() => {
-      pageIsLoaded = true;
-
-      if (customEventIsLoaded) {
-        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-          exportFileDebounce();
-        }
-
-        return;
-      }
-
-      getEventStatusByName(Runtime.evaluate, customEventName, (error: Error, data: {isLoaded: boolean}) => {
+      getEventStatusByName(Runtime.evaluate, customEventName, (error: Error) => {
         if (error) {
           console.error('Custom event status: ', error);
         }
 
-        customEventIsLoaded = data ? data.isLoaded : true;
-
-        if (customEventIsLoaded && pageIsLoaded && requestFinishedCount + requestFailedCount === requestCount) {
-          exportFileDebounce();
-        }
+        exportFileDebounce();
       });
     });
 
     timingObj.pagePreEnable = Date.now();
 
     Page.enable();
-    Network.enable();
     Runtime.enable();
 
     timingObj.pagePostEnable = Date.now();
@@ -262,7 +206,7 @@ function getEventStatusByName(runtimeEvaluate: Function, customEventName: string
     }
 
     if (data.isLoaded) {
-      return cb(null, data);
+      return cb(null, null);
     }
 
     return setTimeout((): Function => {
@@ -331,7 +275,7 @@ app.post('/dom2page', (req: Request, res: Response): any => {
 });
 
 async function pdfExport(instance: any, response: Response, instanceData: IChromeInstance, timingObject: TimingObject, delay: number) {
-  const takeScreenshotDebounce: Function = debounce(async() => {
+  const takeScreenshotDebounce: Function = debounce(async () => {
     const filename = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
         console.log('Take Screenshot Call Error: ' + error);
@@ -377,7 +321,7 @@ async function pdfExport(instance: any, response: Response, instanceData: IChrom
 }
 
 async function imageExport(instance: any, response: Response, instanceData: IChromeInstance, timingObject: TimingObject, delay: number) {
-  const takeScreenshotDebounce: Function = debounce(async() => {
+  const takeScreenshotDebounce: Function = debounce(async () => {
     let filename: any = await takeScreenshot(instance, timingObject)
       .catch((error: Error) => {
         console.log('Take Screenshot Call Error: ' + error);
