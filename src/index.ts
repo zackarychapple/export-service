@@ -10,6 +10,8 @@ import express = require('express');
 import bodyParser = require('body-parser');
 import spawnprocess = require('child_process');
 const Chrome = require('chrome-remote-interface');
+const EventEmitter = require('events');
+const takeScreenshotEmitter = new EventEmitter();
 
 import PDFDocument = require('pdfkit');
 import PDFDocumentOptions = PDFKit.PDFDocumentOptions;
@@ -115,13 +117,9 @@ app.get('/', (req: Request, res: Response) => {
   });
 });
 
-app.post('/', (req: Request, res: Response): any => {
-  const screenshotRequest: IScreenshotRequest = req.body;
+let screenshotRequests: { req: Request, res: Response }[] = [];
 
-  if (typeof screenshotRequest === 'undefined' || typeof screenshotRequest.url === 'undefined') {
-    return res.sendStatus(422);
-  }
-
+takeScreenshotEmitter.on('new-request', () => {
   let instanceData = remoteDebuggingPorts.find((item: IChromeInstance, index: number) => {
     if (!item.isInActive) {
       return false;
@@ -132,7 +130,36 @@ app.post('/', (req: Request, res: Response): any => {
   });
 
   if (!instanceData) {
-    return res.json({error: 'Sorry, all instances of chrome isn\'t unavailable'});
+    return;
+  }
+
+  const screenshotRequest: any = screenshotRequests.shift();
+
+  if (!screenshotRequest) {
+    return;
+  }
+
+  createScreenshot(screenshotRequest.req, screenshotRequest.res, instanceData);
+});
+
+takeScreenshotEmitter.on('end', () => {
+  if (screenshotRequests.length === 0) {
+    return;
+  }
+
+  takeScreenshotEmitter.emit('new-request');
+});
+
+app.post('/', (req: Request, res: Response): any => {
+  screenshotRequests.push({req, res});
+  takeScreenshotEmitter.emit('new-request');
+});
+
+function createScreenshot(req: Request, res: Response, instanceData: IChromeInstance) {
+  const screenshotRequest: IScreenshotRequest = req.body;
+
+  if (typeof screenshotRequest === 'undefined' || typeof screenshotRequest.url === 'undefined') {
+    return res.sendStatus(422);
   }
 
   let timingObj: TimingObject = {
@@ -161,16 +188,16 @@ app.post('/', (req: Request, res: Response): any => {
     delay = screenshotRequest.delay;
   }
 
-  Chrome({port: (instanceData as IChromeInstance).port}, (chromeInstance: any) => {
+  return Chrome({port: instanceData.port}, (chromeInstance: any) => {
     const {Page, Runtime} = chromeInstance;
 
     timingObj.chromeStartup = Date.now();
 
     const exportFileDebounce: Function = debounce(() => {
       if (exportType.toLowerCase() === 'pdf') {
-        pdfExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+        pdfExport(chromeInstance, res, instanceData, timingObj, delay);
       } else {
-        imageExport(chromeInstance, res, instanceData as IChromeInstance, timingObj, delay);
+        imageExport(chromeInstance, res, instanceData, timingObj, delay);
       }
     }, 300);
 
@@ -197,10 +224,11 @@ app.post('/', (req: Request, res: Response): any => {
       Page.navigate({url: screenshotRequest.url});
     });
   });
-});
+}
 
 function getEventStatusByName(runtimeEvaluate: Function, customEventName: string, cb: Function): Function {
-  return getPrerenderReadyStatus(runtimeEvaluate, customEventName, (error: Error, data: {isLoaded: boolean}): Function | Timer => {
+  return getPrerenderReadyStatus(runtimeEvaluate, customEventName, (error: Error, data: { isLoaded: boolean }): Function
+    | Timer => {
     if (error) {
       return cb(error);
     }
@@ -315,6 +343,8 @@ async function pdfExport(instance: any, response: Response, instanceData: IChrom
     if (typeof timingObject.pdfPiped !== 'undefined') {
       console.log(`Export ${timingObject.exportName} pdf sent in: ${timingObject.pdfPiped - timingObject.requestMade}`);
     }
+
+    takeScreenshotEmitter.emit('new-request');
   }, delay);
 
   takeScreenshotDebounce();
@@ -344,6 +374,7 @@ async function imageExport(instance: any, response: Response, instanceData: IChr
     timingObject.instanceClosed = Date.now();
 
     console.log(timingObject);
+    takeScreenshotEmitter.emit('new-request');
   }, delay);
 
   takeScreenshotDebounce();
