@@ -101,7 +101,7 @@ app.use(bodyParser.json());
 //https://groups.google.com/a/chromium.org/forum/#!topic/headless-dev/zxnl6JZA7hQ look at this for resizing page
 
 remoteDebuggingPorts.forEach((item: IChromeInstance) => {
-  spawn(chromiumBinary, ['--no-sandbox', `--remote-debugging-port=${item.port}`, `--window-size=${letterPortraitResolution}`, '--hide-scrollbars']);
+  spawn(chromiumBinary, ['--headless', '--no-sandbox', `--remote-debugging-port=${item.port}`, `--window-size=${letterPortraitResolution}`, '--hide-scrollbars']);
 });
 
 runServer();
@@ -120,6 +120,10 @@ app.get('/', (req: Request, res: Response) => {
 let screenshotRequests: { req: Request, res: Response }[] = [];
 
 takeScreenshotEmitter.on('new-request', () => {
+  if (screenshotRequests.length === 0) {
+    return;
+  }
+
   let instanceData = remoteDebuggingPorts.find((item: IChromeInstance, index: number) => {
     if (!item.isInActive) {
       return false;
