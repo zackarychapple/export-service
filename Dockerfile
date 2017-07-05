@@ -19,10 +19,13 @@ RUN \
 COPY ./node_modules /root/export-app/node_modules
 COPY ./dist /root/export-app/dist
 ADD ./package.json /root/export-app/package.json
-ADD ./08-05-2016_Chromium-Headless-5.tar.gz /root/export-app
+
+# Install Chrome
+RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+RUN dpkg -i google-chrome-stable_current_amd64.deb; apt-get -fy install
 
 WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-CMD ["node", "dist/index.js", "/root/export-app/chromium/src/out/Debug/headless_shell"]
+CMD ["node", "dist/index.js", "google-chrome"]
