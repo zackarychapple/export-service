@@ -12,9 +12,10 @@ RUN \
     apt-get install -y byobu curl git htop man unzip vim wget && \
     rm -rf /var/lib/apt/lists/* && \
     curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash - && \
-    sudo apt-get install -y nodejs && \
-    sudo apt-get install -y libnss3 && \
-    sudo apt-get install -y libgtk2.0-0 libgdk-pixbuf2.0-0 libfontconfig1 libxrender1 libx11-6 libglib2.0-0 libxft2 libfreetype6 libc6 zlib1g libpng12-0 libstdc++6-4.8-dbg-arm64-cross libgcc1
+    sudo apt-get install -y nodejs
+#    && \
+#    sudo apt-get install -y libnss3 && \
+#    sudo apt-get install -y libgtk2.0-0 libgdk-pixbuf2.0-0 libfontconfig1 libxrender1 libx11-6 libglib2.0-0 libxft2 libfreetype6 libc6 zlib1g libpng12-0 libstdc++6-4.8-dbg-arm64-cross libgcc1
 
 COPY ./node_modules /root/export-app/node_modules
 COPY ./dist /root/export-app/dist
