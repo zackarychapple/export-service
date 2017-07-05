@@ -105,9 +105,10 @@ remoteDebuggingPorts.forEach((item: IChromeInstance) => {
 });
 
 runServer();
-
+const serverPkg = require('../package.json');
 app.get('/', (req: Request, res: Response) => {
   res.json({
+    version: serverPkg.version,
     url: 'http://stackoverflow.com',
     exportName: 'my export file',
     orientation: 'portrait',
@@ -342,10 +343,10 @@ async function pdfExport(instance: any, response: Response, instanceData: IChrom
     });
 
     console.log(timingObject);
-    console.log(`Export ${timingObject.exportName} image saved in: ${timingObject.imageSaved - timingObject.requestMade}`);
+    // console.log(`Export ${timingObject.exportName} image saved in: ${timingObject.imageSaved - timingObject.requestMade}`);
 
     if (typeof timingObject.pdfPiped !== 'undefined') {
-      console.log(`Export ${timingObject.exportName} pdf sent in: ${timingObject.pdfPiped - timingObject.requestMade}`);
+      // console.log(`Export ${timingObject.exportName} pdf sent in: ${timingObject.pdfPiped - timingObject.requestMade}`);
     }
 
     takeScreenshotEmitter.emit('new-request');
