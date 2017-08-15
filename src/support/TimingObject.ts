@@ -1,3 +1,4 @@
+// deprecated
 export interface TimingObject {
   exportName?:string;
   requestMade?: number;
