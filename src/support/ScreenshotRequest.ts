@@ -1,5 +1,5 @@
 export interface IScreenshotRequest {
-  url: string;
+  urls: string[];
   exportName: string;
   orientation: 'portrait'| 'landscape';
   exportType: 'pdf' | 'image';
