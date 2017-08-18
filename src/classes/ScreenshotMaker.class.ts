@@ -3,11 +3,19 @@ const Chrome = require('chrome-remote-interface');
 import {debounce} from 'lodash';
 import Timer = NodeJS.Timer;
 
+import { CHROME_WAITING_PERIOD } from '../support/constants';
+
 interface Base64response {
   data: string;
 }
 
 export class ScreenshotMaker {
+
+  private logger: any;
+
+  constructor(logger: any) {
+    this.logger = logger;
+  }
 
   /**
    * Will return Buffer with specified url content(screenshot, not all page)
@@ -24,6 +32,15 @@ export class ScreenshotMaker {
     return Chrome({port: instance.port}, (chromeInstance: any) => {
       const {Page, Runtime} = chromeInstance;
 
+      // attempt to catch a hanging up (endless loop on page or something similar), if response not received for
+      // specific term - response will be interrupted
+      const waitingTimeout = setTimeout(() => {
+        chromeInstance.close();
+        const msg = `getScreenShot method. Error receiving data(timeout of page response exceeded), url: ${url}`;
+        this.logger.warn(msg);
+        cb('Error receiving data(timeout of page response exceeded)', null);
+      }, CHROME_WAITING_PERIOD);
+
       const exportFileDebounce: Function = debounce(async () => {
 
         try {
@@ -33,6 +50,10 @@ export class ScreenshotMaker {
         } catch (e) {
           cb(e, null);
         } finally {
+          if (waitingTimeout) {
+            // response received, drop timeout
+            clearTimeout(waitingTimeout);
+          }
           chromeInstance.close();
         }
 
@@ -41,6 +62,8 @@ export class ScreenshotMaker {
       Page.loadEventFired(() => {
         this.getEventStatusByName(Runtime.evaluate, customEventName, (error: Error) => {
           if (error) {
+            const msg = `Custom event status: ${customEventName}`;
+            this.logger.warn(msg);
             console.error('Custom event status: ', error);
           }
 
@@ -52,8 +75,23 @@ export class ScreenshotMaker {
       Runtime.enable();
 
       chromeInstance.once('ready', () => {
-        Page.navigate({url});
+        Page.navigate({url}).catch((err: Error) => {
+
+          // navigation failed, for example in case of invalid url
+          if (chromeInstance) {
+            chromeInstance.close();
+          }
+          if (waitingTimeout) {
+            clearTimeout(waitingTimeout);
+          }
+
+          cb(err, null);
+        });
       });
+    }).on('error', (err: Error) => {
+      const msg = 'getScreenShot general error. ' + err.toString();
+      this.logger.error(msg);
+      cb(err, null);
     });
   }
 
@@ -70,13 +108,14 @@ export class ScreenshotMaker {
       }, (error: Error, response: any) => {
 
         if (error) {
-          console.error('Protocol error: ', error);
+          const msg = 'Error. DOM to Image: ' + error.toString();
+          this.logger.error(msg);
           chromeInstance.close();
           return cb(error, null);
         }
 
         if (response.wasThrown) {
-          console.error('Evaluation error', response);
+          this.logger.error('Thrown. DOM to Image: ' + response);
           chromeInstance.close();
           return cb('Evaluation error', null);
         }
@@ -93,6 +132,7 @@ export class ScreenshotMaker {
     return this.getPrerenderReadyStatus(runtimeEvaluate, customEventName, (error: Error, data: { isLoaded: boolean }):
       Function | Timer => {
       if (error) {
+        this.logger.error('getEventStatusByName error: ' + error);
         return cb(error);
       }
 
@@ -111,11 +151,14 @@ export class ScreenshotMaker {
       'expression': `document.${customEventName}`
     }, (error: Error, response: any): Function => {
       if (error) {
+        this.logger.error('getPrerenderReadyStatus error: ' + error);
         return cb(error);
       }
 
       if (response.result.type === 'undefined') {
-        return cb(`The custom event '${customEventName}' is not found`);
+        const msg = `The custom event '${customEventName}' is not found`;
+        this.logger.error(msg);
+        return cb(msg);
       }
 
       let isLoaded: boolean = false;
