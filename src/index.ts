@@ -1,12 +1,14 @@
+import { createReadStream, unlinkSync } from 'fs';
+import * as path from 'path';
 import { Request, Response, Express } from 'express';
 import { eachLimit } from 'async';
 import express = require('express');
 import bodyParser = require('body-parser');
 const Chrome = require('chrome-remote-interface');
 import PDFDocument = require('pdfkit');
+const SimpleNodeLogger = require('simple-node-logger');
 
 const serverPkg = require('../package.json');
-
 import { ChromeInstancesManager } from './classes/ChromeInstancesManager.class';
 import { ScreenshotMaker } from './classes/ScreenshotMaker.class';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
@@ -17,18 +19,31 @@ if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
 }
 
-// process.argv[2] contains chromium binary
-const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2]);
+// remove logfile
+unlinkSync(path.join(__dirname, '../logfile.log'));
+const logger = SimpleNodeLogger.createSimpleLogger({
+  logFilePath:'logfile.log',
+  timestampFormat:'YYYY-MM-DD HH:mm:ss.SSS'
+});
+
+const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2], logger);
+
 const app: Express = express();
 
-chromeInstancesManager.runInstances();
+process.on('SIGINT', () => {
+  // closing chrome instances before exiting from main nodejs process
+  chromeInstancesManager.killInstances(false);
+  process.exit(1);
+});
 _runServer();
 
 app.use(bodyParser.json());
 
 /* ENDPOINTS START*/
 app.get('/healthcheck', healthCheck);
+app.get('/logfile', logfile);
 app.get('/', testImage);
+app.get('/restart', restart);
 app.post('/', makeResource);
 app.post('/dom2page', domToFile);
 /* ENDPOINTS END*/
@@ -36,15 +51,26 @@ app.post('/dom2page', domToFile);
 /* MAIN FUNCTIONS START */
 function healthCheck(req: Request, res: Response) {
   console.log(`Health check started. Period is ${HEALTH_CHECK_PERIOD} sec.`);
-  chromeInstancesManager.healthCheck((outString: string) => {
+  chromeInstancesManager.healthCheck(serverPkg.version, (outString: string) => {
     res.status(200).end(outString);
   });
+}
+
+// todo: shall be removed after stabilisation of app
+function logfile(req: Request, res: Response) {
+  const readStream = createReadStream(path.join(__dirname, '../logfile.log'));
+  res.writeHead(200, {
+    'Content-Type': 'text/plain',
+    'Content-Disposition': `attachment; filename=log.txt`
+  });
+
+  readStream.pipe(res);
 }
 
 function testImage (req: Request, res: Response) {
   res.json({
     version: serverPkg.version,
-    url: 'http://stackoverflow.com',
+    urls: ['http://stackoverflow.com'],
     exportName: 'my export file',
     orientation: 'portrait',
     exportType: 'image',
@@ -77,7 +103,7 @@ function makeResource(req: Request, res: Response): void {
 
     chromeInstancesManager.getFreeInstance((instance: any) => {
 
-      const maker = new ScreenshotMaker();
+      const maker = new ScreenshotMaker(logger);
       maker.getScreenShot(url, instance, {flagName: currentRequest.flagName, delay: currentRequest.delay},
         (err: any, data: Buffer) => {
           // screenshot was made(or error received), anyway instance don't needed more
@@ -85,8 +111,8 @@ function makeResource(req: Request, res: Response): void {
 
           if (err) {
             // in case of error current page will be generated with error notification
-            console.log(`Screenshot of ${url} was not created`);
-            console.log(err);
+            const msg = `Screenshot of ${url} was not created. Error: ${err}`;
+            logger.error(msg);
             urlData[index].error = true;
           }
 
@@ -115,6 +141,9 @@ function makeResource(req: Request, res: Response): void {
               }
 
             } catch (e) {
+              const msg = `Screenshot of ${url} was not created. Error: ${e}`;
+              logger.error(msg);
+
               res.status(500).send(e);
             }
 
@@ -141,7 +170,7 @@ function makeResource(req: Request, res: Response): void {
 function domToFile (req: Request, res: Response): any {
 
   chromeInstancesManager.getFreeInstance((instance: IChromeInstance) => {
-    const maker = new ScreenshotMaker();
+    const maker = new ScreenshotMaker(logger);
     maker.domToImage(instance, req.body.html, (error: any, buffer: Buffer) => {
       // screenshot was made(or error received), anyway instance don't needed more
       chromeInstancesManager.setInstanceAsIdle(instance);
@@ -165,6 +194,12 @@ function domToFile (req: Request, res: Response): any {
     })
 
   });
+}
+
+// todo: totally not secure. Must be updated or removed. Added for testing
+function restart(req: Request, res: Response) {
+  res.status(200).send('Restarting initiated');
+  chromeInstancesManager.killInstances(true);
 }
 /* MAIN FUNCTIONS END */
 
@@ -221,13 +256,10 @@ function _runServer() {
   const instances = chromeInstancesManager.cloneInstancesState();
   eachLimit(instances, 5, _browsersInfo, (error: Error) => {
     if (error) {
-      console.log(error);
+      const msg = `Server starting error: ${error}`;
+      logger.error(msg);
       return;
     }
-
-    console.log('Instances stats :');
-    console.log(instances);
-    console.log('********************');
 
     app.listen(3000, () => {
       console.log('Export app running on 3000!');

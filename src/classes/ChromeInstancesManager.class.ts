@@ -2,7 +2,9 @@ import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
 import { IChromeInstance } from '../support/ChromeInstance';
-import { HEALTH_CHECK_PERIOD, PORTRAIT_RESOLUTION } from '../support/constants';
+import {
+  PROCESS_WAITING_PERIOD, HEALTH_CHECK_PERIOD, PORTRAIT_RESOLUTION, INSTANCES_CHECKING_PERIOD
+} from '../support/constants';
 
 export class ChromeInstancesManager {
 
@@ -16,26 +18,93 @@ export class ChromeInstancesManager {
   ];
   private pendingQueue: Function[] = [];
   private chromiumBinary: any;
-  private runnedInstances: ChildProcess[] = [];
+  private runningInstances = new Map<number, ChildProcess>();
 
-  constructor(chromiumBinary: any) {
+  // contains timestamp of last activity related to instance. <port, timestamp>
+  private activities = new Map<number, number>();
+
+  // if false, connections will not be respawned after closing
+  private keepConnectionsAlive: boolean = true;
+  private logger: any;
+
+  constructor(chromiumBinary: any, logger: any) {
     this.chromiumBinary = chromiumBinary;
+    this.logger = logger;
+    this.instances.forEach((item: IChromeInstance) => {
+      this.runInstance(item.port);
+    });
+
+    this.instancesActionEmitter.on('change', (message: any) => {
+      // stores activity related to port
+      this.activities.set(message.port, new Date().getTime());
+    });
+
+    // check instances every <INSTANCES_CHECKING_PERIOD> ms
+    setInterval(this.checkInstancesActivity.bind(this), INSTANCES_CHECKING_PERIOD);
   }
 
   public cloneInstancesState() {
     return JSON.parse(JSON.stringify(this.instances));
   }
 
-  public runInstances() {
-    this.instances.forEach((item: IChromeInstance) => {
-      const process = spawn(this.chromiumBinary, [
-        '--headless',
-        '--no-sandbox',
-        `--remote-debugging-port=${item.port}`,
-        `--window-size=${PORTRAIT_RESOLUTION}`,
-        '--hide-scrollbars'
-      ]);
-      this.runnedInstances.push(process);
+  private runInstance(port: number) {
+    const process = spawn(this.chromiumBinary, [
+      '--headless',
+      '--no-sandbox',
+      `--remote-debugging-port=${port}`,
+      `--window-size=${PORTRAIT_RESOLUTION}`,
+      '--hide-scrollbars'
+    ]);
+    const msg = `Spawning instance on ${port} port, PID: ${process.pid}`;
+    this.logger.info(msg);
+
+    // associate port with process and set process's initial activity timestamp
+    this.runningInstances.set(port, process);
+    this.activities.set(port, new Date().getTime());
+
+    process.on('exit', () => {
+      this.logger.info('"Exit" event was been emitted');
+      this.respawnInstances();
+    });
+
+    process.on('error', (err: any) => {
+      this.logger.error('"Error" event was been emitted' + err.toString());
+      this.respawnInstances();
+    });
+  }
+
+  private respawnInstances() {
+    if (!this.keepConnectionsAlive) {
+      return;
+    }
+
+    this.runningInstances.forEach((value: any, key: number) => {
+      if (value.killed) {
+        this.runInstance(key);
+      }
+    });
+  }
+
+  // every <INSTANCES_CHECKING_PERIOD> ms, app will check instances, and if some was busy, greater than
+  // <PROCESS_WAITING_PERIOD> ms - that processes will be destroyed
+  private checkInstancesActivity() {
+    const now = new Date().getTime();
+    this.instances.forEach((instance: IChromeInstance) => {
+      if (instance.isIdle) {
+        return;
+      }
+
+      const actItem = this.activities.get(instance.port);
+      if (actItem) {
+        const busyTime = now - actItem;
+        if (busyTime >= PROCESS_WAITING_PERIOD) {
+          const msg = `Instance on port ${instance.port} is busy more than ${busyTime} ms and will been killed`;
+          this.logger.warn(msg);
+          this.killInstanceOn(instance.port);
+        }
+      }
+
+      return;
     });
   }
 
@@ -88,10 +157,11 @@ export class ChromeInstancesManager {
 
   /**
    * logs all instances activities for some time and returns log via callback
+   * @param {String} version
    * @param {Function} cb
    */
-  public healthCheck(cb: Function) {
-    let outString: string [] = [];
+  public healthCheck(version: string, cb: Function) {
+    let outString: string [] = ['Service version: ' + version];
     const initialState = this.cloneInstancesState().map(formatResult);
     outString.push('Initial state:');
     outString = outString.concat(initialState);
@@ -118,6 +188,26 @@ export class ChromeInstancesManager {
       const status = item.isIdle ? 'is idle' : 'is busy';
       return `Port: ${item.port} is ${status}`;
     }
+  }
+
+  public killInstanceOn(port: number) {
+    const instance = this.runningInstances.get(port);
+    if (instance) {
+      console.log(`Killing an instance, port: ${port}, PID: ${instance.pid}: `, instance.kill());
+    }
+  }
+
+  /**
+   * Will send to all chrome processes signal "exit"
+   * @param {boolean} keepConnectionsAlive, if true will be created a new connection instead of killed, if false - not
+   */
+  public killInstances(keepConnectionsAlive: boolean) {
+    this.keepConnectionsAlive = keepConnectionsAlive;
+    this.runningInstances.forEach((value: ChildProcess, key: number) => {
+      const isKilled = value.kill();
+      const msg = `Process killed: PID ${value.pid}, port: ${key} -> ` + isKilled;
+      this.logger.info(msg);
+    });
   }
 
 }
