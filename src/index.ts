@@ -1,4 +1,4 @@
-import { createReadStream, unlinkSync } from 'fs';
+import { createReadStream, existsSync, unlinkSync } from 'fs';
 import * as path from 'path';
 import { Request, Response, Express } from 'express';
 import { eachLimit } from 'async';
@@ -19,8 +19,13 @@ if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
 }
 
+const logPath = path.join(__dirname, '../logfile.log');
+
 // remove logfile
-unlinkSync(path.join(__dirname, '../logfile.log'));
+if (existsSync(logPath)) {
+  unlinkSync(logPath);
+}
+
 const logger = SimpleNodeLogger.createSimpleLogger({
   logFilePath:'logfile.log',
   timestampFormat:'YYYY-MM-DD HH:mm:ss.SSS'
@@ -58,7 +63,7 @@ function healthCheck(req: Request, res: Response) {
 
 // todo: shall be removed after stabilisation of app
 function logfile(req: Request, res: Response) {
-  const readStream = createReadStream(path.join(__dirname, '../logfile.log'));
+  const readStream = createReadStream(logPath);
   res.writeHead(200, {
     'Content-Type': 'text/plain',
     'Content-Disposition': `attachment; filename=log.txt`
