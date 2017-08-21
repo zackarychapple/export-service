@@ -107,19 +107,18 @@ function makeResource(req: Request, res: Response): void {
   currentRequest.urls.forEach(async (url, index) => {
 
     chromeInstancesManager.getFreeInstance((instance: any) => {
-
+      console.log('URL STARTED: ', url);
       const maker = new ScreenshotMaker(logger);
       maker.getScreenShot(url, instance, {flagName: currentRequest.flagName, delay: currentRequest.delay},
         (err: any, data: Buffer) => {
-          // screenshot was made(or error received), anyway instance don't needed more
-          chromeInstancesManager.setInstanceAsIdle(instance);
 
           if (err) {
-            // in case of error current page will be generated with error notification
+            chromeInstancesManager.killInstanceOn(instance.port);
             const msg = `Screenshot of ${url} was not created. Error: ${err}`;
             logger.error(msg);
             urlData[index].error = true;
           }
+          chromeInstancesManager.setInstanceAsIdle(instance);
 
           urlData[index].buffer = data;
           // all screenshots has been made - buffers filled
