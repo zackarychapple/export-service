@@ -29,4 +29,4 @@ WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-CMD ["node", "dist/index.js", "google-chrome"]
+CMD ["node", "dist/index.js", "google-chrome", "5"]

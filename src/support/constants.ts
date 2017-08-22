@@ -19,3 +19,6 @@ export const INSTANCES_CHECKING_PERIOD = 20000;
 // if process marked as BUSY greater, than this parameter(in ms), it will be interrupted (ChildProcess level)
 // Should be greater(and, probably multiple to INSTANCES_CHECKING_PERIOD)
 export const PROCESS_WAITING_PERIOD = 40000;
+
+export const DEFAULT_INSTANCES_NUMBER = 5;
+export const INSTANCES_START_PORT = 9222;
