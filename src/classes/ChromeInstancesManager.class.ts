@@ -3,19 +3,13 @@ import { EventEmitter } from 'events';
 
 import { IChromeInstance } from '../support/ChromeInstance';
 import {
-  PROCESS_WAITING_PERIOD, HEALTH_CHECK_PERIOD, PORTRAIT_RESOLUTION, INSTANCES_CHECKING_PERIOD
+  PROCESS_WAITING_PERIOD, HEALTH_CHECK_PERIOD, PORTRAIT_RESOLUTION, INSTANCES_CHECKING_PERIOD, INSTANCES_START_PORT
 } from '../support/constants';
 
 export class ChromeInstancesManager {
 
   private instancesActionEmitter = new EventEmitter();
-  private instances: IChromeInstance[] = [
-    {port: 9222, isIdle: true},
-    {port: 9223, isIdle: true},
-    {port: 9224, isIdle: true},
-    {port: 9225, isIdle: true},
-    {port: 9226, isIdle: true}
-  ];
+  private instances: IChromeInstance[] = [];
   private pendingQueue: Function[] = [];
   private chromiumBinary: any;
   private runningInstances = new Map<number, ChildProcess>();
@@ -27,12 +21,16 @@ export class ChromeInstancesManager {
   private keepConnectionsAlive: boolean = true;
   private logger: any;
 
-  constructor(chromiumBinary: any, logger: any) {
+  constructor(chromiumBinary: any, instancesNumber: number, logger: any) {
     this.chromiumBinary = chromiumBinary;
     this.logger = logger;
-    this.instances.forEach((item: IChromeInstance) => {
-      this.runInstance(item.port);
-    });
+    for (let i = 0; i < instancesNumber; i++) {
+
+      // increment ports for each next instance
+      const port = INSTANCES_START_PORT + i;
+      this.instances.push({port, isIdle: true});
+      this.runInstance(port);
+    }
 
     this.instancesActionEmitter.on('change', (message: any) => {
       // stores activity related to port

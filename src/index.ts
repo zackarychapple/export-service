@@ -13,7 +13,7 @@ import { ChromeInstancesManager } from './classes/ChromeInstancesManager.class';
 import { ScreenshotMaker } from './classes/ScreenshotMaker.class';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { IChromeInstance } from './support/ChromeInstance';
-import { HEALTH_CHECK_PERIOD } from './support/constants';
+import { DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD } from './support/constants';
 
 if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
@@ -31,7 +31,11 @@ const logger = SimpleNodeLogger.createSimpleLogger({
   timestampFormat:'YYYY-MM-DD HH:mm:ss.SSS'
 });
 
-const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2], logger);
+const instancesNumber = (process.argv[3] && !isNaN(parseInt(process.argv[3], 10))) ?
+  parseInt(process.argv[3], 10) :
+  DEFAULT_INSTANCES_NUMBER;
+
+const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
 
 const app: Express = express();
 
