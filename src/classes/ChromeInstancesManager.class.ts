@@ -234,7 +234,7 @@ export class ChromeInstancesManager {
   public killInstances(keepConnectionsAlive: boolean) {
     this.keepConnectionsAlive = false;
     this.logger.info('=================RESTARTING==================');
-    exec('killall chrome', (error, stdout) => {
+    exec('pkill chrome', (error, stdout) => {
       if (error) {
         this.logger.error(`exec error: ${error}`);
         return;
