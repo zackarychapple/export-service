@@ -59,10 +59,16 @@ app.post('/dom2page', domToFile);
 
 /* MAIN FUNCTIONS START */
 function healthCheck(req: Request, res: Response) {
-  console.log(`Health check started. Period is ${HEALTH_CHECK_PERIOD} sec.`);
-  chromeInstancesManager.healthCheck(serverPkg.version, (outString: string) => {
-    res.status(200).end(outString);
+  chromeInstancesManager.getChromeProcessesNumber((err: string, pCount: number) => {
+    console.log(`Health check started. Period is ${HEALTH_CHECK_PERIOD} sec.`);
+    chromeInstancesManager.healthCheck(serverPkg.version, (outString: string) => {
+      if (!err && pCount) {
+        outString = `Chrome processes detected:  ${pCount} \r\n` + outString;
+      }
+      res.status(200).end(outString);
+    });
   });
+
 }
 
 // todo: shall be removed after stabilisation of app
