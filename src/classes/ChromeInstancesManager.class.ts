@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, exec, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
 import { IChromeInstance } from '../support/ChromeInstance';
@@ -45,6 +45,20 @@ export class ChromeInstancesManager {
     return JSON.parse(JSON.stringify(this.instances));
   }
 
+  public getChromeProcessesNumber(cb: Function) {
+    // get chrome child processes. Shall be 15 for 5 instances(Chrome Version 58.0.3029.110 (64-bit))
+    exec('ps -A | grep chrome | wc -l', (error, stdout) => {
+      if (error) {
+        this.logger.error(`exec error: ${error}`);
+        return cb(error, null);
+      }
+      if (stdout && !isNaN(parseInt(stdout, 10))) {
+        return cb(null, parseInt(stdout, 10));
+      }
+      cb('No data received', null);
+    });
+  }
+
   private runInstance(port: number) {
     const process = spawn(this.chromiumBinary, [
       '--headless',
@@ -77,7 +91,7 @@ export class ChromeInstancesManager {
     }
 
     this.runningInstances.forEach((value: any, key: number) => {
-      if (value.killed) {
+      if (value.killed || value.signalCode === 'SIGTERM') {
         this.runInstance(key);
       }
     });
@@ -191,7 +205,25 @@ export class ChromeInstancesManager {
   public killInstanceOn(port: number) {
     const instance = this.runningInstances.get(port);
     if (instance) {
-      console.log(`Killing an instance, port: ${port}, PID: ${instance.pid}: `, instance.kill());
+      const isKilled = instance.kill();
+      const msg = `Process killed: PID ${instance.pid}, port: ${port} -> ` + isKilled;
+      this.logger.info(msg);
+      // if process not killed regular way - it may be a symptom, that it unavailable, so attempt to kill it via linux
+      // command and run a new instance directly on port
+      if (!isKilled) {
+        const cmd = `kill ${instance.pid}`;
+        this.logger.info(`Running a ${cmd}`);
+        exec(cmd, (error) => {
+          if (error) {
+            this.logger.error(`exec error: ${error}`);
+          }
+          if (this.keepConnectionsAlive) {
+            this.logger.warn(`Force running a child process on ${port} port`);
+            this.runInstance(port);
+          }
+        });
+
+      }
     }
   }
 
@@ -200,11 +232,21 @@ export class ChromeInstancesManager {
    * @param {boolean} keepConnectionsAlive, if true will be created a new connection instead of killed, if false - not
    */
   public killInstances(keepConnectionsAlive: boolean) {
-    this.keepConnectionsAlive = keepConnectionsAlive;
-    this.runningInstances.forEach((value: ChildProcess, key: number) => {
-      const isKilled = value.kill();
-      const msg = `Process killed: PID ${value.pid}, port: ${key} -> ` + isKilled;
-      this.logger.info(msg);
+    this.keepConnectionsAlive = false;
+    this.logger.info('=================RESTARTING==================');
+    exec('killall chrome', (error, stdout) => {
+      if (error) {
+        this.logger.error(`exec error: ${error}`);
+        return;
+      }
+      console.log('Instances killed');
+      console.log(stdout);
+
+      // needed for skip all eventemitter events
+      setTimeout(() => {
+        this.keepConnectionsAlive = keepConnectionsAlive;
+        this.respawnInstances();
+      }, 1000);
     });
   }
 
