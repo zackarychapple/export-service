@@ -1,4 +1,3 @@
-import {IChromeInstance} from '../support/ChromeInstance';
 const Chrome = require('chrome-remote-interface');
 import {debounce} from 'lodash';
 import Timer = NodeJS.Timer;
@@ -20,35 +19,39 @@ export class ScreenshotMaker {
   /**
    * Will return Buffer with specified url content(screenshot, not all page)
    * @param {string} url
-   * @param {IChromeInstance} instance
+   * @param {number} port
    * @param options
-   * @param {Function} cb
    * @returns {any}
    */
-  public getScreenShot(url: string, instance: IChromeInstance, options: {flagName: string, delay: number}, cb: Function) {
+  public makeScreenshot(url: string, port: number, options: {flagName: string, delay: number}): Promise<any> {
     const customEventName: string = (options.flagName) ? (options.flagName) : 'readyState';
     const delay: number = (options.delay) ? (options.delay) : 0;
+    let resolve: Function;
+    let reject: Function;
+    const resultPromise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
 
-    return Chrome({port: instance.port}, (chromeInstance: any) => {
+    Chrome({port}, (chromeInstance: any) => {
       const {Page, Runtime} = chromeInstance;
 
-      // attempt to catch a hanging up (endless loop on page or something similar), if response not received for
-      // specific term - response will be interrupted
+      // attempt to catch a hanging up (endless loop on requested page or something similar),
+      // if response not received for specific term - waiting for response will be interrupted
       const waitingTimeout = setTimeout(() => {
         chromeInstance.close();
         const msg = `getScreenShot method. Error receiving data(timeout of page response exceeded), url: ${url}`;
         this.logger.warn(msg);
-        cb('Error receiving data(timeout of page response exceeded)', null);
+        reject('Error receiving data(timeout of page response exceeded)');
       }, CHROME_WAITING_PERIOD);
 
       const exportFileDebounce: Function = debounce(async () => {
 
         try {
           const base64: Base64response = await chromeInstance.Page.captureScreenshot();
-
-          cb(null, Buffer.from(base64.data, 'base64'));
+          resolve(Buffer.from(base64.data, 'base64'));
         } catch (e) {
-          cb(e, null);
+          reject(e);
         } finally {
           if (waitingTimeout) {
             // response received, drop timeout
@@ -85,24 +88,31 @@ export class ScreenshotMaker {
             clearTimeout(waitingTimeout);
           }
 
-          cb(err, null);
+          return Promise.reject(err);
         });
       });
     }).on('error', (err: Error) => {
       const msg = 'getScreenShot general error. ' + err.toString();
       this.logger.error(msg);
-      cb(err, null);
+      reject(err);
     });
+
+    return resultPromise;
   }
 
   /**
    * Will create image from passed html string
-   * @param {IChromeInstance} instance
+   * @param {number} port
    * @param {string} html
-   * @param {Function} cb
    */
-  public domToImage(instance: IChromeInstance, html: string, cb: Function ) {
-    Chrome({port: instance.port}, (chromeInstance: any) => {
+  public domToImage(port: number, html: string,): Promise<any> {
+    let resolve: Function;
+    let reject: Function;
+    const resultPromise = new Promise((res: Function, rej: Function) => {
+      resolve = res;
+      reject = rej;
+    });
+    Chrome({port}, (chromeInstance: any) => {
       chromeInstance.Runtime.evaluate({
         'expression': `document.getElementsByTagName('html')[0].innerHTML = \`${html}\``
       }, (error: Error, response: any) => {
@@ -111,21 +121,22 @@ export class ScreenshotMaker {
           const msg = 'Error. DOM to Image: ' + error.toString();
           this.logger.error(msg);
           chromeInstance.close();
-          return cb(error, null);
+          return reject(error);
         }
 
         if (response.wasThrown) {
           this.logger.error('Thrown. DOM to Image: ' + response);
           chromeInstance.close();
-          return cb('Evaluation error', null);
+          return reject('Evaluation error');
         }
 
         chromeInstance.Page.captureScreenshot().then((base64: Base64response) => {
           chromeInstance.close();
-          cb(null, Buffer.from(base64.data, 'base64'))
+          resolve(Buffer.from(base64.data, 'base64'))
         });
       })
     });
+      return resultPromise;
   }
 
   private getEventStatusByName(runtimeEvaluate: Function, customEventName: string, cb: Function): Function {
