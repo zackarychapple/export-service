@@ -26,9 +26,9 @@ export class ChromeInstancesManager {
     this.logger = logger;
     for (let i = 0; i < instancesNumber; i++) {
 
-      // increment ports for each next instance
+      // increment ports for each next instance. Instances unavailable at start
       const port = INSTANCES_START_PORT + i;
-      this.instances.push({port, isIdle: true});
+      this.instances.push({port, isIdle: false});
       this.runInstance(port);
     }
 
@@ -74,15 +74,19 @@ export class ChromeInstancesManager {
     this.runningInstances.set(port, process);
     this.activities.set(port, new Date().getTime());
 
-    process.on('exit', () => {
-      this.logger.info('"Exit" event was been emitted');
+    process.on('exit', (code: number, signal: string) => {
+      this.logger.error(`Emitted "Exit" event. PID: ${process.pid}, port: ${port}, code: ${code}, signal: ${signal}`);
       this.respawnInstances();
     });
 
     process.on('error', (err: any) => {
-      this.logger.error('"Error" event was been emitted' + err.toString());
+      this.logger.error(`"Error" event was been emitted PID: ${process.pid}, port: ${port}. ${err}`);
       this.respawnInstances();
     });
+
+    setTimeout(() => {
+      this.setPortAsIdle(port);
+    }, 500);
   }
 
   private respawnInstances() {
@@ -121,11 +125,10 @@ export class ChromeInstancesManager {
   }
 
   /**
-   * Returns(callback) free idle chrome instance. If all instances is busy it will add pending callback to queue
-   * also emits event, that instance status was been changed
-   * @param {Function} cb
+   * Returns resolved promise, which "contains" free port immediately. If all ports is busy it will return promise
+   * which will be resolved, when the port going to idle
    */
-  public getFreeInstance(cb: Function): void {
+  public getFreePort(): Promise<any> {
     const instance = this.instances.find((item: IChromeInstance, index: number) => {
       if (item.isIdle) {
         this.instancesActionEmitter.emit('change', {port: item.port, status: 'busy'});
@@ -135,35 +138,33 @@ export class ChromeInstancesManager {
       return false;
     });
 
+    // return found free instance
     if (instance) {
-      // return found free instance
-      return cb(instance);
+      return Promise.resolve(instance.port);
     }
 
-    // free instance not found, add callback to queue(to tail)
-    this.pendingQueue.push(cb);
+    // add function for resolving 
+    return new Promise((resolve: Function) => this.pendingQueue.push(resolve));
   }
 
   /**
-   * marks specified instance as idle. If pending queue is not empty will pass this instance to first item in queue
-   * also emits event, that instance status was been changed
-   * @param {IChromeInstance} instance
-   * @returns {any}
+   * marks instance on specified port as idle. If pending queue is not empty, it will pass this instance to first item
+   * in queue. Also emits event, that instance status was been changed
+   * @param {number} port
    */
-  public setInstanceAsIdle(instance: IChromeInstance) {
-    this.instancesActionEmitter.emit('change', {port: instance.port, status: 'idle'});
-    const index = this.instances.findIndex((item: any) => item.port === instance.port);
+  public setPortAsIdle(port: number): void {
+    this.instancesActionEmitter.emit('change', {port, status: 'idle'});
+    const index = this.instances.findIndex((item: any) => item.port === port);
     this.instances[index].isIdle = true;
     if (this.pendingQueue.length === 0) {
       return;
     }
-
-    // pull top pending callback and pass new freed instance to it. If queue is empty - do nothing
-    const pendingItemCallback = this.pendingQueue.shift();
-    if (pendingItemCallback) {
+    // pull top pending resolver function and invokes it with new freed instance. If queue is empty - do nothing
+    const pendingResolver = this.pendingQueue.shift();
+    if (pendingResolver) {
       this.instances[index].isIdle = false;
-      this.instancesActionEmitter.emit('change', {port: instance.port, status: 'busy'});
-      return pendingItemCallback(instance);
+      this.instancesActionEmitter.emit('change', {port, status: 'busy'});
+      pendingResolver(port);
     }
   }
 
@@ -232,21 +233,11 @@ export class ChromeInstancesManager {
    * @param {boolean} keepConnectionsAlive, if true will be created a new connection instead of killed, if false - not
    */
   public killInstances(keepConnectionsAlive: boolean) {
-    this.keepConnectionsAlive = false;
-    this.logger.info('=================RESTARTING==================');
-    exec('pkill chrome', (error, stdout) => {
-      if (error) {
-        this.logger.error(`exec error: ${error}`);
-        return;
-      }
-      console.log('Instances killed');
-      console.log(stdout);
-
-      // needed for skip all eventemitter events
-      setTimeout(() => {
-        this.keepConnectionsAlive = keepConnectionsAlive;
-        this.respawnInstances();
-      }, 1000);
+    this.keepConnectionsAlive = keepConnectionsAlive;
+    this.runningInstances.forEach((value: ChildProcess, key: number) => {
+      const isKilled = value.kill();
+      const msg = `Process killed: PID ${value.pid}, port: ${key} -> ` + isKilled;
+      this.logger.info(msg);
     });
   }
 
