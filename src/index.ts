@@ -39,9 +39,32 @@ const instancesNumber = (process.argv[3] && !isNaN(parseInt(process.argv[3], 10)
   parseInt(process.argv[3], 10) :
   DEFAULT_INSTANCES_NUMBER;
 
-const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
-
 const app: Express = express();
+let chromeInstancesManager: ChromeInstancesManager;
+
+logger.info('Mounting /dev/shm start:');
+const shmMemory = instancesNumber * SHM_MEMORY_PER_INSTANCE;
+exec(`mount -t tmpfs shmfs -o size=${shmMemory}m /dev/shm`, (error) => {
+  logger.info('Mounting end.');
+  // server will be started even if remount not succeed
+  chromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
+  _runServer();
+
+  if (error) {
+    logger.error(`Mounting error ${error}`);
+    return;
+  }
+
+  logger.info('Mounting success. Check FS');
+  exec('df -h', (error, stdout) => {
+
+    if (error) {
+      logger.error(`Filesystem checking failed. ${error}`);
+      return;
+    }
+    logger.info(`Filesystem check result: ${stdout}`);
+  });
+});
 
 process.on('SIGINT', () => {
   // closing chrome instances before exiting from main nodejs process
@@ -50,7 +73,6 @@ process.on('SIGINT', () => {
     process.exit(1);
   }, 500);
 });
-_runServer();
 
 app.use(bodyParser.json());
 
