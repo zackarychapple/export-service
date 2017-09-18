@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM phusion/baseimage:0.9.22
 
 # Install.
 RUN \
@@ -29,4 +29,4 @@ WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-CMD ["node", "dist/index.js", "google-chrome", "5"]
+CMD ["/sbin/my_init", "node", "dist/index.js", "google-chrome", "5"]

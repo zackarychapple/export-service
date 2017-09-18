@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, unlinkSync } from 'fs';
+import { exec } from 'child_process';
 import * as path from 'path';
 import { Request, Response, Express } from 'express';
 import { eachLimit } from 'async';
@@ -13,7 +14,10 @@ import { ChromeInstancesManager } from './classes/ChromeInstancesManager.class';
 import { ScreenshotMaker } from './classes/ScreenshotMaker.class';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { IChromeInstance } from './support/ChromeInstance';
-import { DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD } from './support/constants';
+import {
+  ATTEMPTS_FOR_URL, DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD,
+  SHM_MEMORY_PER_INSTANCE
+} from './support/constants';
 
 if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
@@ -35,16 +39,43 @@ const instancesNumber = (process.argv[3] && !isNaN(parseInt(process.argv[3], 10)
   parseInt(process.argv[3], 10) :
   DEFAULT_INSTANCES_NUMBER;
 
-const chromeInstancesManager: ChromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
+let chromeInstancesManager: ChromeInstancesManager;
+
+logger.info('Mounting /dev/shm start:');
+const shmMemory = instancesNumber * SHM_MEMORY_PER_INSTANCE;
+exec(`mount -t tmpfs shmfs -o size=${shmMemory}m /dev/shm`, (error) => {
+  logger.info('Mounting end.');
+  // server will be started even if remount not succeed
+  chromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
+  _runServer();
+
+  if (error) {
+    logger.error(`Mounting error ${error}`);
+    return;
+  }
+
+  logger.info('Mounting success. Check FS');
+  exec('df -h', (error, stdout) => {
+
+    if (error) {
+      logger.error(`Filesystem checking failed. ${error}`);
+      return;
+    }
+    logger.info(`Filesystem check result: ${stdout}`);
+  });
+});
+
 
 const app: Express = express();
 
 process.on('SIGINT', () => {
   // closing chrome instances before exiting from main nodejs process
   chromeInstancesManager.killInstances(false);
-  process.exit(1);
+  setTimeout(() => {
+    process.exit(1);
+  }, 500);
 });
-_runServer();
+
 
 app.use(bodyParser.json());
 
@@ -52,7 +83,6 @@ app.use(bodyParser.json());
 app.get('/healthcheck', healthCheck);
 app.get('/logfile', logfile);
 app.get('/', testImage);
-app.get('/restart', restart);
 app.post('/', makeResource);
 app.post('/dom2page', domToFile);
 /* ENDPOINTS END*/
@@ -115,57 +145,42 @@ function makeResource(req: Request, res: Response): void {
     }
   });
   currentRequest.urls.forEach(async (url, index) => {
+    try {
+      urlData[index].buffer = await _getScreenshot(url, currentRequest, ATTEMPTS_FOR_URL);
+    } catch (err) {
+      logger.error(`${err}`);
+      urlData[index].error = true;
+    } finally {
+      // will check, is all screenshots already made(all buffers/errors filled)
+      if (urlData.some((item: any) => !item.buffer && !item.error)) {
+        return;
+      }
+      try {
+        const requestData = {
+          exportType: req.body.exportType,
+          exportName: (req.body.exportName) ? req.body.exportName : 'Export_' + Date.now()
+        };
+        switch (requestData.exportType) {
+          case 'pdf':
+            _sendPdf(urlData, requestData.exportName, res).catch(e => {
+              throw new Error('Error pdf generation:' + e);
+            });
+            break;
+          case 'image':
+            _sendImage(urlData[0].buffer, res);
+            break;
+          default:
+            res.status(422).send('Invalid file type');
+            break;
+        }
+      } catch (e) {
+        const msg = `Resource not create. Error: ${e}`;
+        logger.error(msg);
 
-    chromeInstancesManager.getFreeInstance((instance: any) => {
-      console.log('URL STARTED: ', url);
-      const maker = new ScreenshotMaker(logger);
-      maker.getScreenShot(url, instance, {flagName: currentRequest.flagName, delay: currentRequest.delay},
-        (err: any, data: Buffer) => {
+        res.status(500).send(e);
+      }
 
-          if (err) {
-            chromeInstancesManager.killInstanceOn(instance.port);
-            const msg = `Screenshot of ${url} was not created. Error: ${err}`;
-            logger.error(msg);
-            urlData[index].error = true;
-          }
-          chromeInstancesManager.setInstanceAsIdle(instance);
-
-          urlData[index].buffer = data;
-          // all screenshots has been made - buffers filled
-          if (urlData.every((item: any) => item.buffer || item.error)) {
-            try {
-
-              const requestData = {
-                exportType: req.body.exportType,
-                exportName: (req.body.exportName) ? req.body.exportName : 'Export_' + Date.now()
-              };
-
-              switch (requestData.exportType) {
-                case 'pdf':
-                  _sendPdf(urlData, requestData.exportName, res).catch(e => {
-                    throw new Error('Error pdf generation:' + e);
-                  });
-                  break;
-                case 'image':
-                  _sendImage(urlData[0].buffer, res);
-                  break;
-                default:
-                  res.status(422).send('Invalid file type');
-                  break;
-              }
-
-            } catch (e) {
-              const msg = `Screenshot of ${url} was not created. Error: ${e}`;
-              logger.error(msg);
-
-              res.status(500).send(e);
-            }
-
-          }
-
-        });
-
-    });
+    }
 
   });
 }
@@ -181,44 +196,64 @@ function makeResource(req: Request, res: Response): void {
  * @param {Response} res
  * @returns {any}
  */
-function domToFile (req: Request, res: Response): any {
+async function domToFile (req: Request, res: Response): Promise<any> {
+  const port = await chromeInstancesManager.getFreePort();
 
-  chromeInstancesManager.getFreeInstance((instance: IChromeInstance) => {
-    const maker = new ScreenshotMaker(logger);
-    maker.domToImage(instance, req.body.html, (error: any, buffer: Buffer) => {
-      // screenshot was made(or error received), anyway instance don't needed more
-      chromeInstancesManager.setInstanceAsIdle(instance);
+  const maker = new ScreenshotMaker(logger);
+  try {
+    const buffer = await maker.domToImage(port, req.body.html);
+    chromeInstancesManager.setPortAsIdle(port);
 
-      if (error) {
-        return res.status(500).send(error);
-      }
+    switch (req.body.exportType) {
+      case 'pdf':
+        _sendPdf([{buffer}], req.body.exportName, res);
+        break;
+      case 'image':
+        _sendImage(buffer, res);
+        break;
+      default:
+        res.status(422).send('Invalid file type');
+    }
+  } catch (err) {
+    logger.error(`Dom to file function error: ${err}`);
+    res.status(500).send(err);
+  }
 
-      switch (req.body.exportType) {
-
-        case 'pdf':
-          _sendPdf([{buffer}], req.body.exportName, res);
-          break;
-        case 'image':
-          _sendImage(buffer, res);
-          break;
-        default:
-          res.status(422).send('Invalid file type');
-      }
-      return;
-    })
-
-  });
-}
-
-// todo: totally not secure. Must be updated or removed. Added for testing
-function restart(req: Request, res: Response) {
-  res.status(200).send('Restarting initiated');
-  chromeInstancesManager.killInstances(true);
 }
 /* MAIN FUNCTIONS END */
 
 
 /* SERVICE FUNCTIONS START */
+/**
+ * will try to receive data(Buffer) from specified url. In case of error, will repeat (recursively), until attempts > 0
+ * @param {string} url
+ * @param {IScreenshotRequest} request
+ * @param {number} attemptsLeft
+ * @returns {Promise<any>}
+ * @private
+ */
+async function _getScreenshot(url: string, request: IScreenshotRequest, attemptsLeft: number): Promise<any> {
+  const port = await chromeInstancesManager.getFreePort();
+
+  const maker = new ScreenshotMaker(logger);
+  try {
+    const image = await maker.makeScreenshot(url, port, {flagName: request.flagName, delay: request.delay});
+    chromeInstancesManager.setPortAsIdle(port);
+    return Promise.resolve(image);
+
+  } catch (err) {
+    chromeInstancesManager.killInstanceOn(port);
+    const msg = `Screenshot of ${url} was not created. Error: ${err}`;
+    logger.error(msg);
+    if (attemptsLeft === 1) {
+      return Promise.reject(`Screenshot of ${url} was not created. Attempts spent: ${ATTEMPTS_FOR_URL}`);
+    }
+    attemptsLeft--;
+    logger.info(`${url}. Attempts left: ${attemptsLeft}`);
+    return await _getScreenshot(url, request, attemptsLeft);
+  }
+}
+
 /**
  * Recursive add page with image to document
  * @param {[{buffer: Buffer, url: string}]} images
