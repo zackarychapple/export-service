@@ -21,12 +21,19 @@ COPY ./node_modules /root/export-app/node_modules
 COPY ./dist /root/export-app/dist
 ADD ./package.json /root/export-app/package.json
 
-# Install Chrome
+# Install Original Chrome
 RUN wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 RUN dpkg -i google-chrome-stable_current_amd64.deb; apt-get -fy install
+
+# Upload and unzip Patched Chrome(Docker + Amazon ECS specific. Comment next 4 lines if you don't have shm issue)
+RUN wget https://s3.amazonaws.com/cb-browser-buids/noshmchromium.zip
+RUN mkdir /usr/customchromium/
+RUN mv noshmchromium.zip /usr/customchromium/
+RUN cd /usr/customchromium/ && unzip noshmchromium.zip
 
 WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-CMD ["/sbin/my_init", "node", "dist/index.js", "google-chrome", "5"]
+# If custom chromium build is not needed, use "google-chrome" instead of "/usr/customchromium/Headless/chrome" 
+CMD ["/sbin/my_init", "node", "dist/index.js", "/usr/customchromium/Headless/chrome", "5"]

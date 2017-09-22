@@ -25,6 +25,3 @@ export const INSTANCES_START_PORT = 9222;
 
 // quantity of attempts, which will be used for receiving image from one specific url
 export const ATTEMPTS_FOR_URL = 3;
-
-// Shared memory (/dev/shm) allocated for each one instance of chrome
-export const SHM_MEMORY_PER_INSTANCE = 64;

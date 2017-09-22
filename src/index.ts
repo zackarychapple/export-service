@@ -1,5 +1,4 @@
 import { createReadStream, existsSync, unlinkSync } from 'fs';
-import { exec } from 'child_process';
 import * as path from 'path';
 import { Request, Response, Express } from 'express';
 import { eachLimit } from 'async';
@@ -14,10 +13,7 @@ import { ChromeInstancesManager } from './classes/ChromeInstancesManager.class';
 import { ScreenshotMaker } from './classes/ScreenshotMaker.class';
 import { IScreenshotRequest } from './support/ScreenshotRequest';
 import { IChromeInstance } from './support/ChromeInstance';
-import {
-  ATTEMPTS_FOR_URL, DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD,
-  SHM_MEMORY_PER_INSTANCE
-} from './support/constants';
+import { ATTEMPTS_FOR_URL, DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD } from './support/constants';
 
 if (process.argv[2] === undefined) {
   throw Error('No headless binary path provided.');
@@ -40,31 +36,7 @@ const instancesNumber = (process.argv[3] && !isNaN(parseInt(process.argv[3], 10)
   DEFAULT_INSTANCES_NUMBER;
 
 const app: Express = express();
-let chromeInstancesManager: ChromeInstancesManager;
-
-logger.info('Mounting /dev/shm start:');
-const shmMemory = instancesNumber * SHM_MEMORY_PER_INSTANCE;
-exec(`mount -t tmpfs shmfs -o size=${shmMemory}m /dev/shm`, (error) => {
-  logger.info('Mounting end.');
-  // server will be started even if remount not succeed
-  chromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
-  _runServer();
-
-  if (error) {
-    logger.error(`Mounting error ${error}`);
-    return;
-  }
-
-  logger.info('Mounting success. Check FS');
-  exec('df -h', (error, stdout) => {
-
-    if (error) {
-      logger.error(`Filesystem checking failed. ${error}`);
-      return;
-    }
-    logger.info(`Filesystem check result: ${stdout}`);
-  });
-});
+const chromeInstancesManager = new ChromeInstancesManager(process.argv[2], instancesNumber, logger);
 
 process.on('SIGINT', () => {
   // closing chrome instances before exiting from main nodejs process
@@ -73,6 +45,8 @@ process.on('SIGINT', () => {
     process.exit(1);
   }, 500);
 });
+
+_runServer();
 
 app.use(bodyParser.json());
 
