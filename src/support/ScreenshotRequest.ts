@@ -1,4 +1,4 @@
-export interface IScreenshotRequest {
+export interface ScreenshotRequest {
   urls: string[];
   exportName: string;
   orientation: 'portrait'| 'landscape';

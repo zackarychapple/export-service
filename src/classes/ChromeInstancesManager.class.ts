@@ -1,7 +1,7 @@
 import { ChildProcess, exec, spawn } from 'child_process';
 import { EventEmitter } from 'events';
 
-import { IChromeInstance } from '../support/ChromeInstance';
+import { ChromeInstance } from '../support/ChromeInstance';
 import {
   PROCESS_WAITING_PERIOD, HEALTH_CHECK_PERIOD, PORTRAIT_RESOLUTION, INSTANCES_CHECKING_PERIOD, INSTANCES_START_PORT
 } from '../support/constants';
@@ -9,7 +9,7 @@ import {
 export class ChromeInstancesManager {
 
   private instancesActionEmitter = new EventEmitter();
-  private instances: IChromeInstance[] = [];
+  private instances: ChromeInstance[] = [];
   private pendingQueue: Function[] = [];
   private chromiumBinary: any;
   private runningInstances = new Map<number, ChildProcess>();
@@ -105,7 +105,7 @@ export class ChromeInstancesManager {
   // <PROCESS_WAITING_PERIOD> ms - that processes will be destroyed
   private checkInstancesActivity() {
     const now = new Date().getTime();
-    this.instances.forEach((instance: IChromeInstance) => {
+    this.instances.forEach((instance: ChromeInstance) => {
       if (instance.isIdle) {
         return;
       }
@@ -129,7 +129,7 @@ export class ChromeInstancesManager {
    * which will be resolved, when the port going to idle
    */
   public getFreePort(): Promise<any> {
-    const instance = this.instances.find((item: IChromeInstance, index: number) => {
+    const instance = this.instances.find((item: ChromeInstance, index: number) => {
       if (item.isIdle) {
         this.instancesActionEmitter.emit('change', {port: item.port, status: 'busy'});
         this.instances[index].isIdle = false;
@@ -197,7 +197,7 @@ export class ChromeInstancesManager {
       cb(outString.join('\r\n'));
     }, HEALTH_CHECK_PERIOD);
 
-    function formatResult(item: IChromeInstance) {
+    function formatResult(item: ChromeInstance) {
       const status = item.isIdle ? 'is idle' : 'is busy';
       return `Port: ${item.port} is ${status}`;
     }
