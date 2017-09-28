@@ -11,8 +11,8 @@ const SimpleNodeLogger = require('simple-node-logger');
 const serverPkg = require('../package.json');
 import { ChromeInstancesManager } from './classes/ChromeInstancesManager.class';
 import { ScreenshotMaker } from './classes/ScreenshotMaker.class';
-import { IScreenshotRequest } from './support/ScreenshotRequest';
-import { IChromeInstance } from './support/ChromeInstance';
+import { ScreenshotRequest } from './support/ScreenshotRequest';
+import { ChromeInstance } from './support/ChromeInstance';
 import { ATTEMPTS_FOR_URL, DEFAULT_INSTANCES_NUMBER, HEALTH_CHECK_PERIOD } from './support/constants';
 
 if (process.argv[2] === undefined) {
@@ -52,14 +52,21 @@ app.use(bodyParser.json());
 
 /* ENDPOINTS START*/
 app.get('/healthcheck', healthCheck);
+app.get('/activity-check', activityCheck);
 app.get('/logfile', logfile);
-app.get('/', testImage);
+app.get('/', info);
+app.post('/save-as-pdf', getAsPdf);
 app.post('/', makeResource);
 app.post('/dom2page', domToFile);
+app.post('/dom-to-file', domToFile);
 /* ENDPOINTS END*/
 
 /* MAIN FUNCTIONS START */
 function healthCheck(req: Request, res: Response) {
+  res.status(200).end(`version: ${serverPkg.version}`);
+}
+
+function activityCheck(req: Request, res: Response) {
   chromeInstancesManager.getChromeProcessesNumber((err: string, pCount: number) => {
     console.log(`Health check started. Period is ${HEALTH_CHECK_PERIOD} sec.`);
     chromeInstancesManager.healthCheck(serverPkg.version, (outString: string) => {
@@ -83,23 +90,117 @@ function logfile(req: Request, res: Response) {
   readStream.pipe(res);
 }
 
-function testImage (req: Request, res: Response) {
-  res.json({
+function info (req: Request, res: Response) {
+  const response = {
     version: serverPkg.version,
-    urls: ['http://stackoverflow.com'],
-    exportName: 'my export file',
-    orientation: 'portrait',
-    exportType: 'image',
-    delay: 0,
-    flagName: 'readyState'
+    endpoints: {
+      'GET /': {
+        description: 'API help',
+        method: 'get'
+      },
+      'GET /healthcheck': {
+        description: 'Immediately sends service\'s version',
+        method: 'get'
+      },
+      'GET /activity-check': {
+        description: 'Will gather info about activities at 30 sec and send result to browser',
+        method: 'get'
+      },
+      'POST /': {
+        description: 'Will create PDF or image, which will contain screenshots of pages, specified via urls(in case of image - only first of them)',
+        method: 'post',
+        request: {
+          urls: 'string[], for example [\'http://github.com\', \'http://github.com\', \'http://github.com\'])',
+          exportName: 'string',
+          exportType: 'image || pdf',
+          delay: 'number(not supported in versions > 1.3.0)',
+          flagName: 'readyState(not supported in versions > 1.3.0)'
+        },
+        response: {
+          body: 'Buffer'
+        }
+      },
+      'POST /save-as-pdf': {
+        description: 'Will create PDF, which will contain print(Ctrl+p -> save as PDF in browser) version os specified page',
+        method: 'post',
+        request: {
+          url: 'string',
+          options: 'Look at https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF'
+        },
+        response: {
+          body: 'Buffer'
+        }
+      },
+      'POST /dom2page': {
+        warning: ' endpoint deprecated. Use dom-to-file endpoint instead.',
+        description: 'Will create PDF or image, for specified html',
+        method: 'post',
+        request: {
+          html: 'string',
+          exportName: 'string',
+          exportType: 'image || pdf'
+        },
+        response: {
+          body: 'Buffer'
+        }
+      },
+      'POST /dom-to-file': {
+        description: 'Will create PDF or image, for specified html',
+        method: 'post',
+        request: {
+          html: 'string',
+          exportName: 'string',
+          exportType: 'image || pdf'
+        },
+        response: {
+          body: 'Buffer'
+        }
+      }
+    }
+  };
+
+  res.writeHead(200, {
+    'Content-Type': 'text/html',
   });
+  res.end('<html><head></head><body><ul>' + _expand(response) + '</ul></body></html>');
+}
+
+async function getAsPdf (req: Request, res: Response) {
+
+  let {url, options} = req.body;
+
+  if (!url || typeof url !== 'string') {
+    res.status(422).send('Url required');
+    return;
+  }
+  if (!options || typeof options !== 'object') {
+    options = {};
+  }
+  // todo add options validation
+  const maker = new ScreenshotMaker(logger);
+  const port = await chromeInstancesManager.getFreePort();
+  try {
+    const pdfBuffer = await maker.makeNativePdf(url, port, options);
+    chromeInstancesManager.setPortAsIdle(port);
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+    });
+    res.end(pdfBuffer, 'binary');
+  } catch (e) {
+    res.status(500).end('PDF making error');
+    chromeInstancesManager.killInstanceOn(port);
+  }
 }
 
 function makeResource(req: Request, res: Response): void {
   // todo: add validator for url
-  const currentRequest: IScreenshotRequest = req.body;
+  const currentRequest: ScreenshotRequest = req.body;
   if (!currentRequest.urls || !Array.isArray(currentRequest.urls) || currentRequest.urls.length <= 0) {
     res.status(422).send('Should be specified at least one url');
+    return;
+  }
+  if (!currentRequest.exportType || (currentRequest.exportType !== 'image' && currentRequest.exportType !== 'pdf')) {
+    res.status(422).send('Export type should be specified');
     return;
   }
 
@@ -203,12 +304,12 @@ async function domToFile (req: Request, res: Response): Promise<any> {
  * @returns {Promise<any>}
  * @private
  */
-async function _getScreenshot(url: string, request: IScreenshotRequest, attemptsLeft: number): Promise<any> {
+async function _getScreenshot(url: string, request: ScreenshotRequest, attemptsLeft: number): Promise<any> {
   const port = await chromeInstancesManager.getFreePort();
 
   const maker = new ScreenshotMaker(logger);
   try {
-    const image = await maker.makeScreenshot(url, port, {flagName: request.flagName, delay: request.delay});
+    const image = await maker.makeScreenshot(url, port);
     chromeInstancesManager.setPortAsIdle(port);
     return Promise.resolve(image);
 
@@ -287,7 +388,7 @@ function _runServer() {
   });
 }
 
-function _browsersInfo(item: IChromeInstance, cb: Function): Function {
+function _browsersInfo(item: ChromeInstance, cb: Function): Function {
   return Chrome.Version({port: item.port}, (err: Error) => {
     if (!err) {
       return cb(null, null);
@@ -297,5 +398,19 @@ function _browsersInfo(item: IChromeInstance, cb: Function): Function {
       return _browsersInfo(item, cb);
     }, 300);
   });
+}
+
+function _expand(obj: any) {
+  let out = '';
+  for (let key in obj) {
+
+    if (obj.hasOwnProperty(key)) {
+      const item = obj[key];
+      out += (typeof item === 'string') ?
+        `<li><b>${key}</b>: ${item}</li>`:
+        `<li><b>${key}: </b><ul>${_expand(item)}</ul></li>`;
+    }
+  }
+  return out;
 }
 /* SERVICE FUNCTIONS END */

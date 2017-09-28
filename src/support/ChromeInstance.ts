@@ -1,4 +1,4 @@
-export interface IChromeInstance {
+export interface ChromeInstance {
   port: number;
   isIdle: boolean;
 }

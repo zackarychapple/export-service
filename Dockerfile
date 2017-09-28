@@ -35,5 +35,5 @@ WORKDIR /root/export-app
 
 EXPOSE 8080 3000
 
-# If custom chromium build is not needed, use "google-chrome" instead of "/usr/customchromium/Headless/chrome" 
+# If custom chromium build is not needed, use "google-chrome" instead of "/usr/customchromium/Headless/chrome"
 CMD ["/sbin/my_init", "node", "dist/index.js", "/usr/customchromium/Headless/chrome", "5"]
