@@ -125,7 +125,10 @@ function info (req: Request, res: Response) {
         method: 'post',
         request: {
           url: 'string',
-          options: 'Look at https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF'
+          options: 'Look at https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF',
+          evalParams: {
+            delay: 'Number. Optional. Delay in milliseconds between loading page and making PDF file'
+          }
         },
         response: {
           body: 'Buffer'
@@ -167,7 +170,7 @@ function info (req: Request, res: Response) {
 
 async function getAsPdf (req: Request, res: Response) {
 
-  let {url, options} = req.body;
+  let {url, options, evalParams} = req.body;
 
   if (!url || typeof url !== 'string') {
     res.status(422).send('Url required');
@@ -176,11 +179,16 @@ async function getAsPdf (req: Request, res: Response) {
   if (!options || typeof options !== 'object') {
     options = {};
   }
+
+  if (!evalParams || typeof evalParams !== 'object') {
+    evalParams = {};
+  }
+
   // todo add options validation
   const maker = new ScreenshotMaker(logger);
   const port = await chromeInstancesManager.getFreePort();
   try {
-    const pdfBuffer = await maker.makeNativePdf(url, port, options);
+    const pdfBuffer = await maker.makeNativePdf(url, port, options, evalParams);
     chromeInstancesManager.setPortAsIdle(port);
     res.writeHead(200, {
       'Content-Type': 'application/pdf',
