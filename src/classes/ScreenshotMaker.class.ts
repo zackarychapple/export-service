@@ -1,6 +1,7 @@
 import { PdfSaverOptions } from '../support/PdfSaverOptions';
 const Chrome = require('chrome-remote-interface');
 import { CHROME_WAITING_PERIOD } from '../support/constants';
+import { EvaluationParameters } from '../support/EvaluationParameters';
 
 interface Base64response {
   data: string;
@@ -24,11 +25,11 @@ export class ScreenshotMaker {
     return this.perform(url, port, 'getScreenshot');
   }
 
-  public makeNativePdf(url: string, port: number, options: PdfSaverOptions): Promise<any> {
-    return this.perform(url, port, 'saveAsPdf', options);
+  public makeNativePdf(url: string, port: number, options: PdfSaverOptions, params: EvaluationParameters): Promise<any> {
+    return this.perform(url, port, 'saveAsPdf', options, params);
   };
 
-  private async perform(url: string, port: number, type: string, options?: PdfSaverOptions) {
+  private async perform(url: string, port: number, type: string, options?: PdfSaverOptions, params?: EvaluationParameters) {
     console.log(url);
     let resolve: Function;
     let reject: Function;
@@ -51,6 +52,10 @@ export class ScreenshotMaker {
         await Page.navigate({url});
         await Page.loadEventFired();
 
+        if (params && params.delay && !isNaN(params.delay) && params.delay > 0) {
+          await this.delay(params.delay);
+        }
+
         const {data} = (type === 'saveAsPdf') ?
           await Page.printToPDF(options) :
           await Page.captureScreenshot();
@@ -71,7 +76,6 @@ export class ScreenshotMaker {
 
     return resultPromise;
   }
-
 
   /**
    * Will create image from passed html string
@@ -110,5 +114,18 @@ export class ScreenshotMaker {
       })
     });
     return resultPromise;
+  }
+
+  /**
+   * Will resolve promise after specified delay
+   * @param {number} ms: Delay in milliseconds
+   * @returns {Promise<any>}
+   */
+  private delay(ms: number) {
+    return new Promise((res) => {
+      setTimeout(() => {
+        res();
+      }, ms);
+    })
   }
 }
