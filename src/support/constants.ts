@@ -25,3 +25,6 @@ export const INSTANCES_START_PORT = 9222;
 
 // quantity of attempts, which will be used for receiving image from one specific url
 export const ATTEMPTS_FOR_URL = 3;
+
+// delay in milliseconds between checks of a target page for required element
+export const DELAY_PER_CHECK = 200;
