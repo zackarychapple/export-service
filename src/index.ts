@@ -127,7 +127,10 @@ function info (req: Request, res: Response) {
           url: 'string',
           options: 'Look at https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF',
           evalParams: {
-            delay: 'Number. Optional. Delay in milliseconds between loading page and making PDF file'
+            requiredUrl: 'String. Optional. Service will wait until specified endpoint not returns result to target page(1nd in queue, after document.load event)',
+            expectedElementId: 'String. Optional. Service will wait until element with specified id appears on target page(after requiredUrl check)',
+            delay: 'Number. Optional. Delay in milliseconds between loading page and making PDF file(after all checks)',
+            maxWaitingTime: 'Number. Optional. Specifies max delay(milliseconds), after which "expectedElementId" and "requiredUrl" related checks will be interrupted'
           }
         },
         response: {

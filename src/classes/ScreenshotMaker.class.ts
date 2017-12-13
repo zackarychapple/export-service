@@ -1,7 +1,8 @@
 import { PdfSaverOptions } from '../support/PdfSaverOptions';
 const Chrome = require('chrome-remote-interface');
-import { CHROME_WAITING_PERIOD } from '../support/constants';
+import { CHROME_WAITING_PERIOD, DELAY_PER_CHECK } from '../support/constants';
 import { EvaluationParameters } from '../support/EvaluationParameters';
+import Timer = NodeJS.Timer;
 
 interface Base64response {
   data: string;
@@ -10,6 +11,11 @@ interface Base64response {
 export class ScreenshotMaker {
 
   private logger: any;
+
+  // count of attempts of checking a required element on target page
+  private attempts = 0;
+
+  private delayScale = DELAY_PER_CHECK;
 
   constructor(logger: any) {
     this.logger = logger;
@@ -47,11 +53,40 @@ export class ScreenshotMaker {
       }, CHROME_WAITING_PERIOD);
       try {
 
-        const {Page} = chromeInstance;
+        const {Page, Runtime, Network} = chromeInstance;
         await Page.enable();
+        await Network.enable();
+
         await Page.navigate({url});
         await Page.loadEventFired();
 
+        /* OPTIONAL CHECKS */
+
+        // check if request to some url was receive response(document.load already emitted)
+        const maxWaitingTime = params && params.maxWaitingTime && !isNaN(params.maxWaitingTime)
+        && params.maxWaitingTime > this.delayScale ? params.maxWaitingTime : this.delayScale;
+
+        if (params && params.requiredUrl && typeof params.requiredUrl === 'string'
+          && params.requiredUrl.trim().length > 0) {
+          const potentialError = await this.waitingForLoading(params.requiredUrl, maxWaitingTime, Network);
+
+          if (potentialError) {
+            this.logger.warn(potentialError)
+          }
+        }
+
+        // will try to find some element on target page
+        if (params && params.expectedElementId && typeof params.expectedElementId === 'string' &&
+          params.expectedElementId.trim().length > 0) {
+
+          const potentialError = await this.waitingForElement(params.expectedElementId.trim(), maxWaitingTime, Runtime, true);
+
+          if (potentialError) {
+            this.logger.warn(potentialError)
+          }
+        }
+
+        // custom delay
         if (params && params.delay && !isNaN(params.delay) && params.delay > 0) {
           await this.delay(params.delay);
         }
@@ -82,7 +117,7 @@ export class ScreenshotMaker {
    * @param {number} port
    * @param {string} html
    */
-  public domToImage(port: number, html: string,): Promise<any> {
+  public domToImage(port: number, html: string): Promise<any> {
     let resolve: Function;
     let reject: Function;
     const resultPromise = new Promise((res: Function, rej: Function) => {
@@ -126,6 +161,59 @@ export class ScreenshotMaker {
       setTimeout(() => {
         res();
       }, ms);
+    })
+  }
+
+  /**
+   * Will resolve promise when specified element found on target page(or time expired)
+   * @param {string} id : id of required element
+   * @param {number} maxTime : time when promise will be resolved forcibly
+   * @param runtime
+   * @param {boolean} isInitial : optional sets attempt to null
+   * @returns {Promise<any>}
+   */
+  private waitingForElement(id: string, maxTime: number, runtime: any, isInitial = false) {
+    this.attempts  = isInitial ? 0 : this.attempts + 1;
+    const expression = `document.getElementById(${JSON.stringify(id)})`;
+
+    return new Promise((res) => {
+      if (this.attempts * this.delayScale >= maxTime) {
+        return res('Optional evaluation check. WaitingForElement method. Attempts ended');
+      }
+      setTimeout(() => {
+        runtime.evaluate({expression}).then(async (response: any) => {
+          const evalResult = (!response.result || response.result.value === null) ?
+            await this.waitingForElement(id, maxTime, runtime) : undefined;
+          console.log('waitingForElement, is error:' + evalResult);
+          res(evalResult);
+        }).catch((e: any) => {
+          res('Optional evaluation check. waitingForElement method. ' + e);
+        });
+
+      }, this.delayScale);
+    });
+  }
+
+  /**
+   * Will resolve promise after specified endpoint returns data(or time expired)
+   * @param {string} url : url which should respond for resolving a promise
+   * @param {number} maxTime : time when promise will be resolved forcibly
+   * @param network
+   * @returns {Promise<any>}
+   */
+  private waitingForLoading(url: string, maxTime: number, network: any) {
+    let timer: Timer;
+    return new Promise((res) => {
+      timer = setTimeout(() => {
+        res('Optional evaluation check. waitingForLoading method. Timeout expired');
+      }, maxTime);
+      network.responseReceived((params: any) => {
+        if (params.response.url.indexOf(url) > -1) {
+          clearInterval(timer);
+          console.log('waitingForLoading: URL loaded');
+          res();
+        }
+      });
     })
   }
 }
